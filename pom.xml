@@ -86,19 +86,19 @@
   </mailingLists>
 
   <modules>
-    <module>tags</module>
+<!--    <module>tags</module>-->
     <module>core</module>
-    <module>bagel</module> <!-- Deprecated -->
+<!--    <module>bagel</module> &lt;!&ndash; Deprecated &ndash;&gt;-->
     <module>graphx</module>
     <module>mllib</module>
     <module>tools</module>
     <module>network/common</module>
     <module>network/shuffle</module>
-    <module>streaming</module>
+<!--    <module>streaming</module>-->
     <module>sql/catalyst</module>
     <module>sql/core</module>
     <module>sql/hive</module>
-    <module>docker-integration-tests</module>
+<!--    <module>docker-integration-tests</module>-->
     <module>unsafe</module>
     <module>datalog</module>
     <module>assembly</module>
