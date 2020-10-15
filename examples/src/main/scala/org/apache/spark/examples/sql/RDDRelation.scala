@@ -15,12 +15,18 @@
  * limitations under the License.
  */
 
+
+//  build/mvn -Pyarn -Phadoop-2.4 -Dhadoop.version=2.4.0 -DskipTests -pl :spark-rasql_2.10 clean package
+//  build/mvn -Pyarn -Phadoop-2.4 -Dhadoop.version=2.4.0 -DskipTests package
+//  bin/spark-submit --master local[*] --conf spark.driver.extraJavaOptions=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005 --class org.apache.spark.examples.sql.RDDRelation  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.4.0.jar
+// TODO re-compile and run! - then create context or extend
+
 // scalastyle:off println
 package org.apache.spark.examples.sql
 
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.SQLContext
-import org.apache.spark.sql.functions._
 
 // One method for defining the schema of an RDD is to make a case class with the desired column
 // names and types.
@@ -43,6 +49,13 @@ object RDDRelation {
     // Once tables have been registered, you can run SQL queries over them.
     println("Result of SELECT *:")
     sqlContext.sql("SELECT * FROM records").collect().foreach(println)
+
+    val CCQuery = """ WITH recursive cc(Src, min() AS CmpId) AS (SELECT Src, Src FROM edge) UNION  (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)"""
+
+    val edgesRDD: RDD[(Int, Int)] = sc.parallelize[(Int, Int)](Seq[(Int, Int)]( (3,1), (2,1), (4,1), (4,2), (4,3), (5,6), (6,4), (6,5), (7,6), (7,7)))
+    val edgesDF = sqlContext.createDataFrame(edgesRDD).toDF("Src", "Dst")
+    edgesDF.registerTempTable("edge")
+    val cc = sqlContext.sql(CCQuery).count()
 
     // Aggregation queries are also supported.
     val count = sqlContext.sql("SELECT COUNT(*) FROM records").collect().head.getLong(0)
