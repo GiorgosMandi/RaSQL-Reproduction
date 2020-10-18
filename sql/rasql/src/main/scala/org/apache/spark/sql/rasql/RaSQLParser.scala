@@ -1,14 +1,15 @@
 package org.apache.spark.sql.rasql
 
-import org.apache.spark.sql.AnalysisException
+import org.apache.spark.sql.{AnalysisException, SaveMode}
 import org.apache.spark.sql.catalyst.{AbstractSparkSQLParser, TableIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{UnresolvedAlias, UnresolvedAttribute, UnresolvedExtractValue, UnresolvedRelation, UnresolvedStar}
-import org.apache.spark.sql.catalyst.expressions.aggregate.{Complete, Count, Max, Min, Sum}
+import org.apache.spark.sql.catalyst.analysis.{UnresolvedAlias, UnresolvedAttribute, UnresolvedExtractValue, UnresolvedFunction, UnresolvedRelation, UnresolvedStar}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Count, Max, Min, Sum}
 import org.apache.spark.sql.catalyst.expressions.{Add, And, Ascending, BitwiseAnd, BitwiseNot, BitwiseOr, BitwiseXor, Descending, Divide, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, IsNotNull, IsNull, LessThan, LessThanOrEqual, Like, Literal, Multiply, Not, Or, RLike, Remainder, SortDirection, SortOrder, Subtract, UnaryExpression, UnaryMinus, aggregate}
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Distinct, Filter, Join, LogicalPlan, OneRowRelation, Project, Sort, Union}
 import org.apache.spark.sql.catalyst.util.DataTypeParser
-import org.apache.spark.sql.types.{BooleanType, NullType, StringType}
+import org.apache.spark.sql.execution.datasources.{CreateTableUsing, CreateTableUsingAsSelect}
+import org.apache.spark.sql.types.{BooleanType, NullType, StringType, StructType}
 
 
 object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
@@ -60,14 +61,19 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     protected override lazy val start: Parser[LogicalPlan] = rasql
 
     lazy val rasql: Parser[LogicalPlan] =
-        (WITH ~> (RECURSIVE ~> ident)) ~ ("(" ~> projection <~ ",") ~ (premFunction <~ ")") ~
+        (WITH ~> (RECURSIVE ~> tableIdentifier)) ~ ("(" ~> projection <~ ",") ~ (premFunction <~ ")") ~
         (AS ~> ( "(" ~> simple_select <~ ")")) ~
         (UNION ~> ("(" ~> recursive_select <~ ")")) ^^{
-            case i ~ p ~ pf ~ ss ~ rs =>
-                val withUnion = Union(ss, rs)
-                val ps = Seq(p, pf)
-                val withProject = Project(ps.map(UnresolvedAlias), withUnion)
-                withProject
+            case t ~ p ~ pf ~ ss ~ rs =>
+                val fName = pf.getFunctionName
+                val attr = Seq(pf.getTargetAttribute)
+                val af = UnresolvedFunction(fName, attr, isDistinct = false)
+
+                val agss = Project(Seq(UnresolvedAlias(af)), ss)
+                val agrs = Project(Seq(UnresolvedAlias(af)), rs)
+                val u = Union(agss, agrs)
+                val rt = CreateTableUsingAsSelect(t, "", temporary = true, Array.empty[String], SaveMode.Ignore, Map(), u)
+                rt
     }
 
 
@@ -89,13 +95,13 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             case p ~ r  => Project(p._2.map(UnresolvedAlias), r.getOrElse(OneRowRelation))
         }
 
-    lazy val premFunction: Parser[Expression] =
+    lazy val premFunction: Parser[RecursiveAggregateExpr] =
         ident ~ (AS ~> expression) ^^ { case premF ~ e =>
             lexical.normalizeKeyword(premF) match {
-                case "count" => RecursiveAggregateExpr(Count(e), mode = Complete, isDistinct = false)
-                case "sum" => RecursiveAggregateExpr(Sum(e), mode = Complete, isDistinct = false)
-                case "min" => RecursiveAggregateExpr(Min(e), mode = Complete, isDistinct = false)
-                case "max" => RecursiveAggregateExpr(Max(e), mode = Complete, isDistinct = false)
+                case "count" => RecursiveAggregateExpr(Count(e), mode = Complete, fName = "count", attrName = e)
+                case "sum" => RecursiveAggregateExpr(Sum(e), mode = Complete, fName = "sum", attrName = e)
+                case "min" => RecursiveAggregateExpr(Min(e), mode = Complete, fName = "min", attrName = e)
+                case "max" => RecursiveAggregateExpr(Max(e), mode = Complete, fName = "max", attrName = e)
                 case _ => throw new AnalysisException(s"invalid expression $premF")
             }
         }
@@ -103,7 +109,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     lazy val projection: Parser[Expression] = expression
 
     lazy val recursive_relations: Parser[LogicalPlan] =
-        relation ~ ("," ~> relation) ^^ {case r1 ~ r2 => RecursiveJoin(r1, r2, None) }
+        relation ~ ("," ~> relation) ^^ {case r1 ~ r2 => Join(r1, r2, Inner, None) }
 
     lazy val relations: Parser[LogicalPlan] =
         (relation ~ rep1("," ~> relation) ^^ {case r1 ~ joins => joins.foldLeft(r1) { case(lhs, r) => Join(lhs, r, Inner, None) } }

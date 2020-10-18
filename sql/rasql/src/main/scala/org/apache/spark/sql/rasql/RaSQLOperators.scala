@@ -1,5 +1,6 @@
 package org.apache.spark.sql.rasql
 
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateFunction, AggregateMode, Complete, Final, Partial, PartialMerge}
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, Unevaluable}
 import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LogicalPlan, UnaryNode}
@@ -23,8 +24,13 @@ case class RecursiveJoin(left: LogicalPlan, right: LogicalPlan, condition: Optio
 }
 
 
-case class RecursiveAggregateExpr(aggregateFunction: AggregateFunction, mode: AggregateMode, isDistinct: Boolean)
+case class RecursiveAggregateExpr(aggregateFunction: AggregateFunction, mode: AggregateMode,
+                                  fName: String, attrName: Expression)
     extends Expression with Unevaluable {
+
+    def getFunctionName: String = fName
+
+    def getTargetAttribute: UnresolvedAttribute = attrName.asInstanceOf[UnresolvedAttribute]
 
     override def children: Seq[Expression] = aggregateFunction :: Nil
 
