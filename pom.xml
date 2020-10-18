@@ -97,7 +97,7 @@
 <!--    <module>streaming</module>-->
     <module>sql/catalyst</module>
     <module>sql/core</module>
-    <module>sql/hive</module>
+<!--    <module>sql/hive</module>-->
 <!--    <module>docker-integration-tests</module>-->
     <module>unsafe</module>
     <module>datalog</module>
