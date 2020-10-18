@@ -18,7 +18,6 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     val FROM: Keyword = Keyword("FROM")
     val WHERE: Keyword = Keyword("WHERE")
     val AS: Keyword = Keyword("AS")
-    val WITH: Keyword = Keyword("WITH")
     val UNION: Keyword = Keyword("UNION")
     val ORDER: Keyword = Keyword("ORDER")
     val SORT: Keyword = Keyword("SORT")
@@ -39,11 +38,8 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     val FALSE: Keyword = Keyword("FALSE")
     val CAST: Keyword = Keyword("CAST")
 
+    protected val WITH: Keyword = Keyword("with")
     protected val RECURSIVE: Keyword = Keyword("recursive")
-    protected val MIN: Keyword = Keyword("min()")
-    protected val MAX: Keyword = Keyword("max()")
-    protected val COUNT: Keyword = Keyword("count()")
-    protected val SUM: Keyword = Keyword("sum()")
     protected val REGEXP: Keyword = Keyword("REGEXP")
 
     /*Example:
@@ -60,20 +56,19 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     |  SELECT count(distinct cc.CmpId) FROM cc
  */
 
+// WITH recursive cc(Src, min() AS CmpId) AS (SELECT Src, Src FROM edge) UNION  (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)
     protected override lazy val start: Parser[LogicalPlan] = rasql
 
-    lazy val rasql: Parser[LogicalPlan] = recursive_cte
-
-    lazy val recursive_cte: Parser[LogicalPlan] =
-        WITH ~ RECURSIVE ~> ident ~ ( "(" ~> repsep(projection, ",") ) ~
-            ("," ~> premFunction ~ ")") ~
-            (AS ~> simple_select) ~ (UNION ~> recursive_select) ^^{
-            case i ~ p ~ pmf ~ ss ~ rs =>
-                val union = Union(ss, rs)
-                val withProject = Project(p.map(UnresolvedAlias), union)
-                val withPMF = Project(pmf._1.map(UnresolvedAlias), union)
-                Union(withProject, withPMF)
-        }
+    lazy val rasql: Parser[LogicalPlan] =
+        (WITH ~> (RECURSIVE ~> ident)) ~ ("(" ~> projection <~ ",") ~ (premFunction <~ ")") ~
+        (AS ~> ( "(" ~> simple_select <~ ")")) ~
+        (UNION ~> ("(" ~> recursive_select <~ ")")) ^^{
+            case i ~ p ~ pf ~ ss ~ rs =>
+                val withUnion = Union(ss, rs)
+                val ps = Seq(p, pf)
+                val withProject = Project(ps.map(UnresolvedAlias), withUnion)
+                withProject
+    }
 
 
     lazy val recursive_select: Parser[LogicalPlan] =
@@ -84,23 +79,23 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             case d ~ p ~ r ~ f =>
                 val base = r.getOrElse(OneRowRelation)
                 val withFilter = f.map(Filter(_, base)).getOrElse(base)
-                val projection = Project(p.map(UnresolvedAlias(_)), withFilter) // todo change
+                val projection = Project(p.map(UnresolvedAlias), withFilter)
                 val withDistinct = d.map(_ => Distinct(projection)).getOrElse(projection)
                 withDistinct
         }
 
     lazy val simple_select: Parser[LogicalPlan] =
         SELECT ~ repsep(projection, ",") ~ (FROM   ~> relations).? ^^ {
-            case p ~ r  => Project(p._2.map(UnresolvedAlias(_)), r.getOrElse(OneRowRelation))
+            case p ~ r  => Project(p._2.map(UnresolvedAlias), r.getOrElse(OneRowRelation))
         }
 
     lazy val premFunction: Parser[Expression] =
-        (ident <~ "()") ~ (AS ~> projection) ^^ { case premF ~ p =>
+        ident ~ (AS ~> expression) ^^ { case premF ~ e =>
             lexical.normalizeKeyword(premF) match {
-                case "count" => RecursiveAggregateExpr(Count(p), mode = Complete, isDistinct = false)
-                case "sum" => RecursiveAggregateExpr(Sum(p), mode = Complete, isDistinct = false)
-                case "min" => RecursiveAggregateExpr(Min(p), mode = Complete, isDistinct = false)
-                case "max" => RecursiveAggregateExpr(Max(p), mode = Complete, isDistinct = false)
+                case "count" => RecursiveAggregateExpr(Count(e), mode = Complete, isDistinct = false)
+                case "sum" => RecursiveAggregateExpr(Sum(e), mode = Complete, isDistinct = false)
+                case "min" => RecursiveAggregateExpr(Min(e), mode = Complete, isDistinct = false)
+                case "max" => RecursiveAggregateExpr(Max(e), mode = Complete, isDistinct = false)
                 case _ => throw new AnalysisException(s"invalid expression $premF")
             }
         }

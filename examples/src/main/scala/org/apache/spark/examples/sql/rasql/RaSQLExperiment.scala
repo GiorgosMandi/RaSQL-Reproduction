@@ -24,21 +24,19 @@ package org.apache.spark.examples.sql.rasql
 //
 //  bin/spark-submit --master local[*] --conf spark.driver.extraJavaOptions=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005 --class org.apache.spark.examples.sql.rasql.RaSQLExperiment  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.4.0.jar
 
-// TODO re-compile and run! - then create context or extend
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.rasql.RaSQLContext
 
-case class Record(key: Int, value: String)
 
 object RaSQLExperiment {
     def main(args: Array[String]) {
         val sparkConf = new SparkConf().setAppName("RaSQL-CC-Experiment")
         val sc = new SparkContext(sparkConf)
-        val sqlContext = new RaSQLContext(sc) // TODO RaSQLContext class not found - delete examples
+        val sqlContext = new RaSQLContext(sc)
 
-        val CCQuery = """ WITH recursive cc(Src, min() AS CmpId) AS (SELECT Src, Src FROM edge) UNION  (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)"""
+        val CCQuery = """ WITH recursive cc(Src, min AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)"""
 
         val edgesRDD: RDD[(Int, Int)] = sc.parallelize[(Int, Int)](Seq[(Int, Int)]( (3,1), (2,1), (4,1), (4,2), (4,3), (5,6), (6,4), (6,5), (7,6), (7,7)))
         val edgesDF = sqlContext.createDataFrame(edgesRDD).toDF("Src", "Dst")
