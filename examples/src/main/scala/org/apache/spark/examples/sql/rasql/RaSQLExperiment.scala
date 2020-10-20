@@ -36,7 +36,7 @@ object RaSQLExperiment {
         val sc = new SparkContext(sparkConf)
         val sqlContext = new RaSQLContext(sc)
 
-        val CCQuery = """ WITH recursive cc(Src, min AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)"""
+        val CCQuery = """ WITH recursive cc(Src, min AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
 
         val edgesRDD: RDD[(Int, Int)] = sc.parallelize[(Int, Int)](Seq[(Int, Int)]( (3,1), (2,1), (4,1), (4,2), (4,3), (5,6), (6,4), (6,5), (7,6), (7,7)))
         val edgesDF = sqlContext.createDataFrame(edgesRDD).toDF("Src", "Dst")

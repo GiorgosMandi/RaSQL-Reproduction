@@ -3,10 +3,10 @@ package org.apache.spark.sql.rasql
 import org.apache.spark.sql.{AnalysisException, SaveMode}
 import org.apache.spark.sql.catalyst.{AbstractSparkSQLParser, TableIdentifier}
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAlias, UnresolvedAttribute, UnresolvedExtractValue, UnresolvedFunction, UnresolvedRelation, UnresolvedStar}
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Count, Max, Min, Sum}
-import org.apache.spark.sql.catalyst.expressions.{Add, And, Ascending, BitwiseAnd, BitwiseNot, BitwiseOr, BitwiseXor, Descending, Divide, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, IsNotNull, IsNull, LessThan, LessThanOrEqual, Like, Literal, Multiply, Not, Or, RLike, Remainder, SortDirection, SortOrder, Subtract, UnaryExpression, UnaryMinus, aggregate}
+import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Count, HyperLogLogPlusPlus, Max, Min, Sum}
+import org.apache.spark.sql.catalyst.expressions.{Add, And, Ascending, BitwiseAnd, BitwiseNot, BitwiseOr, BitwiseXor, CaseKeyWhen, Descending, Divide, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, IsNotNull, IsNull, LessThan, LessThanOrEqual, Like, Literal, Multiply, Not, Or, RLike, Remainder, SortDirection, SortOrder, Subtract, UnaryExpression, UnaryMinus, aggregate}
 import org.apache.spark.sql.catalyst.plans.Inner
-import org.apache.spark.sql.catalyst.plans.logical.{Distinct, Filter, Join, LogicalPlan, OneRowRelation, Project, Sort, Union}
+import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Distinct, Filter, Join, Limit, LogicalPlan, OneRowRelation, Project, Sort, Subquery, Union, With}
 import org.apache.spark.sql.catalyst.util.DataTypeParser
 import org.apache.spark.sql.execution.datasources.{CreateTableUsing, CreateTableUsingAsSelect}
 import org.apache.spark.sql.types.{BooleanType, NullType, StringType, StructType}
@@ -61,10 +61,11 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     protected override lazy val start: Parser[LogicalPlan] = rasql
 
     lazy val rasql: Parser[LogicalPlan] =
-        (WITH ~> (RECURSIVE ~> tableIdentifier)) ~ ("(" ~> projection <~ ",") ~ (premFunction <~ ")") ~
-        (AS ~> ( "(" ~> simple_select <~ ")")) ~
-        (UNION ~> ("(" ~> recursive_select <~ ")")) ^^{
-            case t ~ p ~ pf ~ ss ~ rs =>
+        (WITH ~> (RECURSIVE ~> ident)) ~ ("(" ~> projection <~ ",") ~ (premFunction <~ ")") ~
+            (AS ~> ( "(" ~> simple_select <~ ")")) ~
+            (UNION ~> ("(" ~> recursive_select <~ ")")) ~
+            (simple_select) ^^{
+            case t ~ p ~ pf ~ ss ~ rs ~ s =>
                 val fName = pf.getFunctionName
                 val attr = Seq(pf.getTargetAttribute)
                 val af = UnresolvedFunction(fName, attr, isDistinct = false)
@@ -72,8 +73,10 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 val agss = Project(Seq(UnresolvedAlias(af)), ss)
                 val agrs = Project(Seq(UnresolvedAlias(af)), rs)
                 val u = Union(agss, agrs)
-                val rt = CreateTableUsingAsSelect(t, "", temporary = true, Array.empty[String], SaveMode.Ignore, Map(), u)
-                rt
+                val w = With(s, Map(t -> Subquery(t, u)))
+                w
+                //val rt = CreateTableUsingAsSelect(t, "", temporary = true, Array.empty[String], SaveMode.Ignore, Map(), u)
+                //rt
     }
 
 
@@ -90,9 +93,20 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 withDistinct
         }
 
-    lazy val simple_select: Parser[LogicalPlan] =
-        SELECT ~ repsep(projection, ",") ~ (FROM   ~> relations).? ^^ {
-            case p ~ r  => Project(p._2.map(UnresolvedAlias), r.getOrElse(OneRowRelation))
+    protected lazy val simple_select: Parser[LogicalPlan] =
+        SELECT ~> DISTINCT.? ~
+            repsep(projection, ",") ~
+            (FROM   ~> relations).? ~
+            (WHERE  ~> expression).? ~
+            sortType.? ~
+            (LIMIT  ~> expression).? ^^ {
+            case d ~ p ~ r ~ f ~ o ~ l =>
+                val base = r.getOrElse(OneRowRelation)
+                val withFilter = f.map(Filter(_, base)).getOrElse(base)
+                val withDistinct = d.map(_ => Distinct(withFilter)).getOrElse(withFilter)
+                val withOrder = o.map(_(withDistinct)).getOrElse(withDistinct)
+                val withLimit = l.map(Limit(_, withOrder)).getOrElse(withOrder)
+                withLimit
         }
 
     lazy val premFunction: Parser[RecursiveAggregateExpr] =
@@ -192,12 +206,31 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             | (expression <~ ".") ~ ident ^^
             { case base ~ fieldName => UnresolvedExtractValue(base, Literal(fieldName)) }
             | "(" ~> expression <~ ")"
+            | function
             | dotExpressionHeader
             | signedPrimary
             | "~" ~> expression ^^ BitwiseNot
             | attributeName ^^ UnresolvedAttribute.quoted
             )
 
+    protected lazy val function: Parser[Expression] =
+        ( ident <~ ("(" ~ "*" ~ ")") ^^ { case udfName =>
+            if (lexical.normalizeKeyword(udfName) == "count") {
+                AggregateExpression(Count(Literal(1)), mode = Complete, isDistinct = false)
+            } else {
+                throw new AnalysisException(s"invalid expression $udfName(*)")
+            }
+        }
+            | ident ~ ("(" ~> repsep(expression, ",")) <~ ")" ^^
+            { case udfName ~ exprs => UnresolvedFunction(udfName, exprs, isDistinct = false) }
+            | ident ~ ("(" ~ DISTINCT ~> repsep(expression, ",")) <~ ")" ^^ { case udfName ~ exprs =>
+            lexical.normalizeKeyword(udfName) match {
+                case "count" =>
+                    aggregate.Count(exprs).toAggregateExpression(isDistinct = true)
+                case _ => UnresolvedFunction(udfName, exprs, isDistinct = true)
+            }
+        }
+            )
 
     lazy val dotExpressionHeader: Parser[Expression] = (ident <~ ".") ~ ident ~ rep("." ~> ident) ^^ { case i1 ~ i2 ~ rest => UnresolvedAttribute(Seq(i1, i2) ++ rest) }
 
