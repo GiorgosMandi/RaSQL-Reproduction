@@ -4,7 +4,7 @@ import org.apache.spark.sql.{AnalysisException, SaveMode}
 import org.apache.spark.sql.catalyst.{AbstractSparkSQLParser, TableIdentifier}
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAlias, UnresolvedAttribute, UnresolvedExtractValue, UnresolvedFunction, UnresolvedRelation, UnresolvedStar}
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateExpression, Complete, Count, HyperLogLogPlusPlus, Max, Min, Sum}
-import org.apache.spark.sql.catalyst.expressions.{Add, And, Ascending, BitwiseAnd, BitwiseNot, BitwiseOr, BitwiseXor, CaseKeyWhen, Descending, Divide, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, IsNotNull, IsNull, LessThan, LessThanOrEqual, Like, Literal, Multiply, Not, Or, RLike, Remainder, SortDirection, SortOrder, Subtract, UnaryExpression, UnaryMinus, aggregate}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Ascending, BitwiseAnd, BitwiseNot, BitwiseOr, BitwiseXor, CaseKeyWhen, Descending, Divide, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, IsNotNull, IsNull, LessThan, LessThanOrEqual, Like, Literal, Multiply, Not, Or, RLike, Remainder, SortDirection, SortOrder, Subtract, UnaryExpression, UnaryMinus, aggregate}
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, Distinct, Filter, Join, Limit, LogicalPlan, OneRowRelation, Project, Sort, Subquery, Union, With}
 import org.apache.spark.sql.catalyst.util.DataTypeParser
@@ -67,46 +67,49 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             (simple_select) ^^{
             case t ~ p ~ pf ~ ss ~ rs ~ s =>
                 val fName = pf.getFunctionName
-                val attr = Seq(pf.getTargetAttribute)
-                val af = UnresolvedFunction(fName, attr, isDistinct = false)
+                val attrAlias = pf.getTargetAttributeAlias
 
-                val agss = Project(Seq(UnresolvedAlias(af)), ss)
-                val agrs = Project(Seq(UnresolvedAlias(af)), rs)
-                val u = Union(agss, agrs)
-                val w = With(s, Map(t -> Subquery(t, u)))
+                val ssAttr = ss.projectList.last
+                val ssAf = UnresolvedFunction(fName, Seq(ssAttr), isDistinct = false)
+                val ssAggregate = UnresolvedAlias(Alias(ssAf, attrAlias)())
+                val ssGroupByArgs = ss.projectList.dropRight(1)
+                val ssAggregateArgs = ssGroupByArgs :+ ssAggregate
+                val ssMA = MonotonicAggregate(ssGroupByArgs, ssAggregateArgs, ss)
+
+                val rsAttr = rs.projectList.last
+                val rsAf = UnresolvedFunction(fName, Seq(rsAttr), isDistinct = false)
+                val rsAggregate = UnresolvedAlias(Alias(rsAf, attrAlias)())
+                val rsGroupByArgs = rs.projectList.dropRight(1)
+                val rsAggregateArgs = rsGroupByArgs :+ rsAggregate
+                val rsMA = MonotonicAggregate(rsGroupByArgs, rsAggregateArgs, rs)
+
+                //val u = Union(agss, agrs)
+                val ra = AggregateRecursion(t, ssMA, rsMA)
+                val w = With(s, Map(t -> Subquery(t, ra)))
                 w
-                //val rt = CreateTableUsingAsSelect(t, "", temporary = true, Array.empty[String], SaveMode.Ignore, Map(), u)
-                //rt
     }
 
 
-    lazy val recursive_select: Parser[LogicalPlan] =
-        SELECT ~> DISTINCT.? ~
-            repsep(projection, ",") ~
-            (FROM   ~> recursive_relations).? ~
+    lazy val recursive_select: Parser[Project] =
+        SELECT ~> repsep(projection, ",") ~
+            (FROM   ~> recursive_relations) ~
             (WHERE  ~> expression).?  ^^ {
-            case d ~ p ~ r ~ f =>
-                val base = r.getOrElse(OneRowRelation)
+            case p ~ rr ~ f =>
+                val base = rr
                 val withFilter = f.map(Filter(_, base)).getOrElse(base)
-                val projection = Project(p.map(UnresolvedAlias), withFilter)
-                val withDistinct = d.map(_ => Distinct(projection)).getOrElse(projection)
-                withDistinct
+                val withProject = Project(p.map(UnresolvedAlias), withFilter)
+                withProject
         }
 
-    protected lazy val simple_select: Parser[LogicalPlan] =
-        SELECT ~> DISTINCT.? ~
-            repsep(projection, ",") ~
+    protected lazy val simple_select: Parser[Project] =
+        SELECT ~> rep1sep(projection, ",") ~
             (FROM   ~> relations).? ~
-            (WHERE  ~> expression).? ~
-            sortType.? ~
-            (LIMIT  ~> expression).? ^^ {
-            case d ~ p ~ r ~ f ~ o ~ l =>
+            (WHERE  ~> expression).? ^^ {
+            case p ~ r ~ f =>
                 val base = r.getOrElse(OneRowRelation)
                 val withFilter = f.map(Filter(_, base)).getOrElse(base)
-                val withDistinct = d.map(_ => Distinct(withFilter)).getOrElse(withFilter)
-                val withOrder = o.map(_(withDistinct)).getOrElse(withDistinct)
-                val withLimit = l.map(Limit(_, withOrder)).getOrElse(withOrder)
-                withLimit
+                val withProject = Project(p.map(UnresolvedAlias), withFilter)
+                withProject
         }
 
     lazy val premFunction: Parser[RecursiveAggregateExpr] =
@@ -123,7 +126,8 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     lazy val projection: Parser[Expression] = expression
 
     lazy val recursive_relations: Parser[LogicalPlan] =
-        relation ~ ("," ~> relation) ^^ {case r1 ~ r2 => Join(r1, r2, Inner, None) }
+        (tableIdentifier ~ rep1("," ~> relation) ^^ {case rr ~ joins => joins.foldLeft(RecursiveRelation(rr).asInstanceOf[LogicalPlan]) { case(lhs, r) => Join(lhs, r, Inner, None) } }
+            | tableIdentifier ^^ {case rr => RecursiveRelation(rr)})
 
     lazy val relations: Parser[LogicalPlan] =
         (relation ~ rep1("," ~> relation) ^^ {case r1 ~ joins => joins.foldLeft(r1) { case(lhs, r) => Join(lhs, r, Inner, None) } }

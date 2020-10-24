@@ -1,9 +1,10 @@
 package org.apache.spark.sql.rasql
 
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.TableIdentifier
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAlias
 import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateFunction, AggregateMode, Complete, Final, Partial, PartialMerge}
-import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, Unevaluable}
-import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LogicalPlan, UnaryNode}
+import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, NamedExpression, Unevaluable}
+import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LeafNode, LogicalPlan, Statistics, UnaryNode}
 import org.apache.spark.sql.types.{BooleanType, DataType}
 
 case class PreMapFunction(pm: Expression, child: LogicalPlan) extends UnaryNode {
@@ -30,7 +31,7 @@ case class RecursiveAggregateExpr(aggregateFunction: AggregateFunction, mode: Ag
 
     def getFunctionName: String = fName
 
-    def getTargetAttribute: UnresolvedAttribute = attrName.asInstanceOf[UnresolvedAttribute]
+    def getTargetAttributeAlias: String = attrName.toString
 
     override def children: Seq[Expression] = aggregateFunction :: Nil
 
@@ -48,6 +49,34 @@ case class RecursiveAggregateExpr(aggregateFunction: AggregateFunction, mode: Ag
 
         AttributeSet(childReferences)
     }
+}
+
+case class MonotonicAggregate(groupingExpressions: Seq[Expression],
+                              aggregateExpressions: Seq[NamedExpression],
+                              child: LogicalPlan) extends UnaryNode {
+    override lazy val resolved: Boolean = expressions.forall(_.resolved) && childrenResolved
+
+    override def output: Seq[Attribute] = aggregateExpressions.map(_.toAttribute)
+}
+
+
+case class RecursiveRelation(tableIdentifier: TableIdentifier) extends LeafNode {
+
+    def tableName: String = tableIdentifier.unquotedString
+
+    override def output: Seq[Attribute] = Nil
+
+    override lazy val resolved = false
+}
+}
+
+
+case class AggregateRecursion(name: String,
+                              left: LogicalPlan,
+                              right: LogicalPlan) extends BinaryNode {
+    // left is exitRules plan
+    // right is recursive rules plan
+    override def output: Seq[Attribute] = right.output
 }
 
 
