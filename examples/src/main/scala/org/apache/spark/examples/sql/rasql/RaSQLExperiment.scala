@@ -34,14 +34,14 @@ object RaSQLExperiment {
     def main(args: Array[String]) {
         val sparkConf = new SparkConf().setAppName("RaSQL-CC-Experiment")
         val sc = new SparkContext(sparkConf)
-        val sqlContext = new RaSQLContext(sc)
+        val rasqlContext = new RaSQLContext(sc)
 
         val CCQuery = """ WITH recursive cc(Src, min AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
 
         val edgesRDD: RDD[(Int, Int)] = sc.parallelize[(Int, Int)](Seq[(Int, Int)]( (3,1), (2,1), (4,1), (4,2), (4,3), (5,6), (6,4), (6,5), (7,6), (7,7)))
-        val edgesDF = sqlContext.createDataFrame(edgesRDD).toDF("Src", "Dst")
+        val edgesDF = rasqlContext.createDataFrame(edgesRDD).toDF("Src", "Dst")
         edgesDF.registerTempTable("edge")
-        val cc = sqlContext.sql(CCQuery).count()
+        val cc = rasqlContext.sql(CCQuery).count()
 
         sc.stop()
     }

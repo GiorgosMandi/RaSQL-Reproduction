@@ -4,6 +4,7 @@ import org.apache.spark.sql.execution.{CacheManager, SparkSQLParser}
 import org.apache.spark.sql.execution.ui.SQLListener
 import org.apache.spark.{Logging, SparkContext}
 import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.rasql.logical.RaSQLParser
 
 
 class RaSQLContext(@transient override val sparkContext: SparkContext,
@@ -20,6 +21,9 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
 
     @transient
     protected[sql] override val sqlParser = new SparkSQLParser(RaSQLParser.parse)
+
+    @transient
+    override lazy val analyzer: Analyzer = new Analyzer(catalog, functionRegistry, conf) {}
 
 }
 

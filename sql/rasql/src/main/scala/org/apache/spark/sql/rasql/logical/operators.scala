@@ -1,10 +1,10 @@
-package org.apache.spark.sql.rasql
+package org.apache.spark.sql.rasql.logical
 
 import org.apache.spark.sql.catalyst.TableIdentifier
-import org.apache.spark.sql.catalyst.analysis.UnresolvedAlias
-import org.apache.spark.sql.catalyst.expressions.aggregate.{AggregateFunction, AggregateMode, Complete, Final, Partial, PartialMerge}
+import org.apache.spark.sql.catalyst.analysis.UnresolvedAttribute
+import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.expressions.{Attribute, AttributeSet, Expression, NamedExpression, Unevaluable}
-import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LeafNode, LogicalPlan, Statistics, UnaryNode}
+import org.apache.spark.sql.catalyst.plans.logical.{BinaryNode, LeafNode, LogicalPlan, UnaryNode}
 import org.apache.spark.sql.types.{BooleanType, DataType}
 
 case class PreMapFunction(pm: Expression, child: LogicalPlan) extends UnaryNode {
@@ -31,7 +31,7 @@ case class RecursiveAggregateExpr(aggregateFunction: AggregateFunction, mode: Ag
 
     def getFunctionName: String = fName
 
-    def getTargetAttributeAlias: String = attrName.toString
+    def getTargetAttributeAlias: String = attrName.asInstanceOf[UnresolvedAttribute].name
 
     override def children: Seq[Expression] = aggregateFunction :: Nil
 
@@ -65,9 +65,6 @@ case class RecursiveRelation(tableIdentifier: TableIdentifier) extends LeafNode 
     def tableName: String = tableIdentifier.unquotedString
 
     override def output: Seq[Attribute] = Nil
-
-    override lazy val resolved = false
-}
 }
 
 
