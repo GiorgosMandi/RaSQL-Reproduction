@@ -1991,7 +1991,8 @@ class SparkContext(config: SparkConf) extends Logging with ExecutorAllocationCli
   }
 
   /**
-    * Run a fixedpoint (i.e., Datalog) program as the given RDD and pass the back to the caller specified in 'FixedPointJobDefinition'
+    * Run a fixedpoint (i.e., Datalog, Recursive Aggregate) program as the given RDD and pass the back to the caller
+   * specified in 'FixedPointJobDefinition'
     * Termination condition specified as 'fixedPointEvaluator'.
     */
   def runFixedPointJob[T](rdd: RDD[_],

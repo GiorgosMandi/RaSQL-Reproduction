@@ -1,10 +1,10 @@
 package org.apache.spark.sql.rasql
 
 import org.apache.spark.sql.AnalysisException
-import org.apache.spark.sql.catalyst.{CatalystConf, TableIdentifier}
-import org.apache.spark.sql.catalyst.analysis.{Analyzer, Catalog, ComputeCurrentTime, DistinctAggregationRewriter, EliminateSubQueries, FunctionRegistry, HiveTypeCoercion, MultiAlias, NoSuchTableException, ResolveUpCast, UnresolvedAlias, UnresolvedRelation}
+import org.apache.spark.sql.catalyst.CatalystConf
+import org.apache.spark.sql.catalyst.analysis.{Catalog, ComputeCurrentTime, DistinctAggregationRewriter, EliminateSubQueries, FunctionRegistry, HiveTypeCoercion, MultiAlias, NoSuchTableException, ResolveUpCast, UnresolvedAlias, UnresolvedRelation}
 import org.apache.spark.sql.catalyst.expressions.{Alias, Cast, CreateStruct, CreateStructUnsafe, Expression, Generator, NamedExpression, SortOrder}
-import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, GroupingAnalytics, InsertIntoTable, LogicalPlan, Pivot, Project, Subquery, Window, With}
+import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.rasql.logical.{MonotonicAggregate, RecursiveRelation}
 
@@ -69,7 +69,9 @@ case class Analyzer(catalog: Catalog,
                 }
             case rr : RecursiveRelation =>
                 try {
-                    getTable(rr)
+                    //val plan = getTable(rr)
+                    //rr.output = plan.output
+                    Project(rr.output, rr)
                 } catch {
                     case _: AnalysisException if rr.tableIdentifier.database.isDefined =>
                         // delay the exception into CheckAnalysis, then it could be resolved as data source.
