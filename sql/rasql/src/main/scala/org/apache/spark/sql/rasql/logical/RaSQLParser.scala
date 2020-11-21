@@ -13,8 +13,6 @@ import org.apache.spark.sql.{AnalysisException, SQLContext}
 
 object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
 
-    // TODO add partitioning
-
     val DISTINCT: Keyword = Keyword("DISTINCT")
     val SELECT: Keyword = Keyword("SELECT")
     val FROM: Keyword = Keyword("FROM")
@@ -114,7 +112,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 val unionMA = MonotonicAggregate(groupingKeys, groupingKeys :+ preMAliased, union)
 
                 // In AggregateRecursion we apply the recursion
-                val ra = AggregateRecursion(t, unionMA, baseMA)
+                val ra = AggregateRecursion(t, baseMA, unionMA)
 
                 // After initializing the Recursive CTE we apply the select query
                 val w = With(s, Map(t-> Subquery(t, ra)))
@@ -198,7 +196,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
         tableIdentifier ~ ("," ~> relation)^^ {
             case rr ~ rel =>
                 val recursiveRelation = RecursiveRelation(rr, rrAttributes)
-                Join(rel, recursiveRelation, Inner, None)
+                Join(rel, Subquery(recursiveRelation.tableName, recursiveRelation), Inner, None)
         }
 
     // Regular SQL Parsers follow

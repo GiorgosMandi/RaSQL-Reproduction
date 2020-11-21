@@ -69,7 +69,7 @@ case class Analyzer(catalog: Catalog,
                 }
             case rr : RecursiveRelation =>
                 try {
-                    Subquery(rr.tableName, rr)
+                        rr
                 } catch {
                     case _: AnalysisException if rr.tableIdentifier.database.isDefined =>
                         // delay the exception into CheckAnalysis, then it could be resolved as data source.
