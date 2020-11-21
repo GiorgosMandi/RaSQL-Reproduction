@@ -12,7 +12,7 @@ import org.apache.spark.sql.rasql.RaSQLContext
 import scala.reflect.ClassTag
 
 
-case class AggregateRecursion(name : String, left : SparkPlan, right : SparkPlan) extends BinaryNode {
+case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan) extends BinaryNode {
 
     override def output: Seq[Attribute] = right.output
 

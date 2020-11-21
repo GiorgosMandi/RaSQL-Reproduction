@@ -65,12 +65,11 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     |  SELECT count(distinct cc.CmpId) FROM cc
  */
 
-    // TODO Comment
     protected override lazy val start: Parser[LogicalPlan] = rasql
     var rrAttributes: Seq[AttributeReference] = _
     var fName: String = _
     var attrAlias: UnresolvedAttribute = _
-    var mainArguments: Seq[Expression] = _
+    var mainArg: UnresolvedAttribute = _
 
     lazy val rasql: Parser[LogicalPlan] =
         (recursive_cte) ~
@@ -89,7 +88,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
 
                 // Form aggregation Attributes
                 val recAggrKey = Seq(recursive.projectList.head)
-                val recAggregateArgs = recursive.projectList.dropRight(1) :+ recPreMAliased
+                val recAggregateArgs = Seq(UnresolvedAlias(Alias(recursive.projectList.head, mainArg.name)()), recPreMAliased)
                 val recursiveMA = MonotonicAggregate(recAggrKey, recAggregateArgs, recursive)
 
                 // Form Monotonic Aggregation of base cte - This stays the same so to
@@ -102,20 +101,19 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 val baseAggregateArgs = base.projectList.dropRight(1) :+ basePreMAliased
                 val baseMA = MonotonicAggregate(baseAggrKey, baseAggregateArgs, base)
 
-                // We union the results and apply a last monotonic aggregation
-                val union = Subquery("u", Union(baseMA, recursiveMA))
+                // In AggregateRecursion we apply the recursion
+                val ra = RecursiveAggregate(t, baseMA, recursiveMA)
+
+                // After Recursive Aggregation we apply again the PreM F
                 val allKeys = rrAttributes.map(ar => UnresolvedAttribute(ar.name))
                 val lastKey = Seq(allKeys.last)
                 val preM = UnresolvedFunction(fName, lastKey, isDistinct = true)
                 val preMAliased = UnresolvedAlias(Alias(preM, attrAlias.name)())
                 val groupingKeys = allKeys.dropRight(1)
-                val unionMA = MonotonicAggregate(groupingKeys, groupingKeys :+ preMAliased, union)
-
-                // In AggregateRecursion we apply the recursion
-                val ra = AggregateRecursion(t, baseMA, unionMA)
+                val raMA = MonotonicAggregate(groupingKeys, groupingKeys :+ preMAliased, Subquery(t+"_RA", ra))
 
                 // After initializing the Recursive CTE we apply the select query
-                val w = With(s, Map(t-> Subquery(t, ra)))
+                val w = With(s, Map(t-> Subquery(t, raMA)))
                 w
     }
 
@@ -126,10 +124,11 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
         (WITH ~> (RECURSIVE ~> ident)) ~ ("(" ~> rep1sep( premFunction|projection, ",") <~ ")")  ^^{
             case t ~ p =>
                 // Store info for PreM Function and other
+                // p will always have size=2 consisting of the aggregate key and the PreMFunction(key)
                 val pf = p.last.asInstanceOf[RecursiveAggregateExpr]
                 fName = pf.getFunctionName
                 attrAlias = pf.getTargetAttributeAlias
-                mainArguments = p.dropRight(1)
+                mainArg = p.head.asInstanceOf[UnresolvedAttribute]
 
                 // An empty RDD is initialized as the Recursive Table
                 val structFields = p

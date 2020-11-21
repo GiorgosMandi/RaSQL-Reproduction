@@ -14,8 +14,8 @@ class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
 
     object RecursiveAggregation extends Strategy {
         def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
-            case logical.AggregateRecursion(name, left, right) =>
-                execution.AggregateRecursion(name, planLater(left), planLater(right)) :: Nil
+            case logical.RecursiveAggregate(name, left, right) =>
+                execution.RecursiveAggregate(name, planLater(left), planLater(right)) :: Nil
             case logical.RecursiveRelation(table, output) =>
                 execution.RecursiveRelation(table.unquotedString, output) :: Nil
             case _ => Nil

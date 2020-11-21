@@ -69,7 +69,7 @@ case class RecursiveRelation(tableIdentifier: TableIdentifier, var output: Seq[A
 }
 
 
-case class AggregateRecursion(name: String, left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
+case class RecursiveAggregate(name: String, left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
     // left is exitRules plan
     // right is recursive rules plan
     override def output: Seq[Attribute] = right.output
