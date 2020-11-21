@@ -69,14 +69,23 @@ case class Analyzer(catalog: Catalog,
                 }
             case rr : RecursiveRelation =>
                 try {
-                    //val plan = getTable(rr)
-                    //rr.output = plan.output
-                    Project(rr.output, rr)
+                    Subquery(rr.tableName, rr)
                 } catch {
                     case _: AnalysisException if rr.tableIdentifier.database.isDefined =>
                         // delay the exception into CheckAnalysis, then it could be resolved as data source.
                         rr
                 }
+//            case ct: CacheTableCommand if ct.plan.get.isInstanceOf[UnresolvedRelation] =>
+//                try {
+//                    val unresolvedRelation = ct.plan.get.asInstanceOf[UnresolvedRelation]
+//                    val resolvedRelation = getTable(unresolvedRelation)
+//                    CacheTableCommand(unresolvedRelation.tableName, Option(resolvedRelation), isLazy = true)
+//                } catch {
+//                    case _: AnalysisException if ct.plan.get.asInstanceOf[UnresolvedRelation].tableIdentifier.database.isDefined =>
+//                        // delay the exception into CheckAnalysis, then it could be resolved as data source.
+//                        ct.plan.get.asInstanceOf[UnresolvedRelation]
+//                }
+
         }
     }
     object ResolveAliases2 extends Rule[LogicalPlan] {

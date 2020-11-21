@@ -31,7 +31,7 @@ case class RecursiveAggregateExpr(aggregateFunction: AggregateFunction, mode: Ag
 
     def getFunctionName: String = fName
 
-    def getTargetAttributeAlias: String = attrName.asInstanceOf[UnresolvedAttribute].name
+    def getTargetAttributeAlias: UnresolvedAttribute = attrName.asInstanceOf[UnresolvedAttribute]
 
     override def children: Seq[Expression] = aggregateFunction :: Nil
 
