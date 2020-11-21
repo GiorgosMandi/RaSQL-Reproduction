@@ -36,9 +36,10 @@ object RaSQLExperiment {
         val rasqlContext = new RaSQLContext(sc)
 
         val CCQuery = """ WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
-        val graph = Seq[(Long, Long)]( (1, 2), (2, 3), (3, 4), (4, 1)) //,(5, 3), (5, 6), (6, 5), (7, 5))
+        val graph = Seq[(Long, Long)]( (1, 2), (2, 3), (3, 4), (4, 1), (5, 6), (6, 5)) //,(5, 3), (5, 6), (6, 5), (7, 5))
         val edgesRDD: RDD[(Long, Long)] = sc.parallelize[(Long, Long)](graph)
         val edgesDF = rasqlContext.createDataFrame(edgesRDD, "edge").toDF("Src", "Dst")
+        edgesDF.cache()
         edgesDF.registerTempTable("edge")
         val cc = rasqlContext.sql(CCQuery).count()
 
