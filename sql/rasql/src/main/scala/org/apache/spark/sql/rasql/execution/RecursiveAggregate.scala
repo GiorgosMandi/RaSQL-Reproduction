@@ -16,7 +16,7 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
     override def output: Seq[Attribute] = right.output
 
     var all: SetRDD = _
-    var deltaS: SetRDD = _
+    var delta: SetRDD = _
     var iteration: Int = 0
 
     @transient
@@ -27,7 +27,7 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
     def doExecute(): RDD[InternalRow] = {
         val rowRDD: RDD[InternalRow] = left.execute()
         all = SetRDD(rowRDD, schema).setName("all"+iteration)
-        deltaS = all
+        delta = all
         val items = all.count()
         rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, rowRDD)
         doRecursion(items)
@@ -40,27 +40,28 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
         while(newItems > 0){
             iteration += 1
             // calculate the new items
-            val ra = right.execute()
+            val delta_ = right.execute()
 
             // delta = all - new
-            deltaS = all.diff(ra).setName("delta"+iteration)
+            delta = all.diff(delta_).setName("delta"+iteration)
+            delta.cache()
+            newItems = delta.count()
 
             // all = all U delta
-            all = all.union(deltaS).setName("all"+iteration)
-            all.cache()
+            all = all.union(delta_).setName("all"+iteration)
+            //all.cache()
+            //val allCount = all.count()
 
-            newItems = deltaS.count()
-            val allCount = all.count()
-            rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, all)
+            rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, delta)
 
             if (iteration >= 4 && newItems > 0)
                 sparkContext.
                     getPersistentRDDs.values
-                    .filter(rdd => rdd.name == "all"+(iteration-2) || rdd.name == "all"+(iteration-3))
+                    .filter(rdd => rdd.name == "all"+(iteration-2) || rdd.name == "all"+(iteration-3) || rdd.name == "delta"+(iteration-2) || rdd.name == "delta"+(iteration-3) )
                     .foreach(_.unpersist())
 
             logInfo("Aggregate Recursion iteration: " + iteration)
-            logInfo("All RDD size = " + allCount)
+            //logInfo("All RDD size = " + allCount)
             logInfo("New Delta RDD size = " + newItems)
         }
     }
