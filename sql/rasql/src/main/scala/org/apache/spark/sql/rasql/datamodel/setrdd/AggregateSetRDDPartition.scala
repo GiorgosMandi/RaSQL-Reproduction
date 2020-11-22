@@ -17,7 +17,6 @@ class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregat
     def iterator: Iterator[InternalRow] = KeyValueToInternalRowIterator(aggregateStore.iterator(), monotonicAggregate.generateResultProjection())
 
     /**
-     * TODO FIX
      * update() merges the results produced during the iteration into this partition
      *  during update():
      *   - the underlying aggregateSetRDDPartition storage is updated.

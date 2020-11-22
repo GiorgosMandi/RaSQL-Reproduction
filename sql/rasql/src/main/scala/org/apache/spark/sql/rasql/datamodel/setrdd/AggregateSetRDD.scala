@@ -89,7 +89,6 @@ class AggregateSetRDD(val partitionsRDD: RDD[AggregateSetRDDPartition], monotoni
         firstParent[AggregateSetRDDPartition].iterator(part, context).next.iterator
     }
 
-    // TODO FIX
     // assume other is already partitioned by AggrGroup
     def update(other: RDD[InternalRow]): (AggregateSetRDD, SetRDD) = {
         val newPartitionsRDD = partitionsRDD.zipPartitions(other, preservesPartitioning = true) { (thisIter, otherIter) =>

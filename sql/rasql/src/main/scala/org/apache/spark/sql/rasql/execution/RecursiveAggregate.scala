@@ -2,7 +2,6 @@ package org.apache.spark.sql.rasql.execution
 
 import edu.ucla.cs.wis.bigdatalog.spark.execution.setrdd.SetRDD
 import org.apache.spark.rdd.RDD
-import org.apache.spark.scheduler.fixedpoint.FixedPointJobDefinition
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.Attribute
@@ -28,43 +27,42 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
     def doExecute(): RDD[InternalRow] = {
         val rowRDD: RDD[InternalRow] = left.execute()
         all = SetRDD(rowRDD, schema).setName("all"+iteration)
-        all.count()
         deltaS = all
-
+        val items = all.count()
         rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, rowRDD)
-        val fpjd = new FixedPointJobDefinition(doRecursion, null)
-
-        this.sparkContext.runFixedPointJob(deltaS, fpjd, partitionNotEmpty)
+        doRecursion(items)
         all
     }
 
 
-    def doRecursion(fpjd: FixedPointJobDefinition, allRDD: RDD[_]): RDD[InternalRow] = {
+    def doRecursion(items: Long): Unit = {
+        var newItems = items
+        while(newItems > 0){
+            iteration += 1
+            // calculate the new items
+            val ra = right.execute()
 
-        // delta = all - new aggregation
-        val ra = right.execute()
-        deltaS = all.diff(ra).setName("delta"+iteration)
+            // delta = all - new
+            deltaS = all.diff(ra).setName("delta"+iteration)
 
-        // all = all U delta
-        all = all.union(deltaS).setName("all"+iteration)
-        fpjd.finalRDD = all
-        all.cache()
+            // all = all U delta
+            all = all.union(deltaS).setName("all"+iteration)
+            all.cache()
 
-        // deltaS = deltaS'
-        iteration += 1
+            newItems = deltaS.count()
+            val allCount = all.count()
+            rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, all)
 
-        val allCount = all.count()
-        val deltaCount = deltaS.count()
-        rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, all)
-        // todo cleans up to 3 previous cached RDDs
+            if (iteration >= 4 && newItems > 0)
+                sparkContext.
+                    getPersistentRDDs.values
+                    .filter(rdd => rdd.name == "all"+(iteration-2) || rdd.name == "all"+(iteration-3))
+                    .foreach(_.unpersist())
 
-        logInfo("Aggregate Recursion iteration: " + iteration)
-        logInfo("All RDD size = " + allCount)
-        logInfo("New Delta RDD size = " + deltaCount)
-
-        if (deltaCount > 0)
-            doRecursion(fpjd, all)
-        deltaS
+            logInfo("Aggregate Recursion iteration: " + iteration)
+            logInfo("All RDD size = " + allCount)
+            logInfo("New Delta RDD size = " + newItems)
+        }
     }
 
 }
