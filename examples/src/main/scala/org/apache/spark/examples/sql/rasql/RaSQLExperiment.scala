@@ -18,32 +18,97 @@ package org.apache.spark.examples.sql.rasql
  */
 
 
-//  build/mvn -Pyarn -Phadoop-2.4 -Dhadoop.version=2.4.0 -DskipTests -pl :spark-rasql_2.10 clean package
-//  build/mvn -Pyarn -Phadoop-2.4 -Dhadoop.version=2.4.0 -DskipTests package
-//  bin/spark-submit --master local[*] --class org.apache.spark.examples.sql.rasql.RaSQLExperiment  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.4.0.jar
-//
-//  bin/spark-submit --master local[*] --conf spark.driver.extraJavaOptions=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005 --class org.apache.spark.examples.sql.rasql.RaSQLExperiment  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.4.0.jar
+import java.util.Calendar
 
-
+import org.apache.log4j.{Level, LogManager, Logger}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.rasql.RaSQLContext
+import org.apache.spark.{SparkConf, SparkContext}
 
 object RaSQLExperiment {
+
+
+    def getGraph(sc: SparkContext, filePath: String, numPartitions: Int): RDD[(Long, Long)] = {
+        sc.textFile(filePath, numPartitions)
+            .coalesce(numPartitions)
+            .filter(line => !line.trim.isEmpty && (line(0) != '%'))
+            .map(line => {
+                val splitLine = line.split("\t")
+                (splitLine(0).toLong, splitLine(1).toLong)
+            })
+    }
+
+
     def main(args: Array[String]) {
-        val sparkConf = new SparkConf().setAppName("RaSQL-CC-Experiment")
+        val sparkConf = new SparkConf().setAppName("RaSQL-Experiment")
         val sc = new SparkContext(sparkConf)
         val rasqlContext = new RaSQLContext(sc)
 
-        val CCQuery = """ WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
-        val graph = Seq[(Long, Long)]( (1, 2), (2, 3), (3, 4), (4, 1), (5, 2), (5, 6), (6, 5), (7, 5), (9, 10), (10, 9), (11, 9), (11, 10))
-        val edgesRDD: RDD[(Long, Long)] = sc.parallelize[(Long, Long)](graph, 1)
-        val edgesDF = rasqlContext.createDataFrame(edgesRDD, "edge").toDF("Src", "Dst")
-        edgesDF.cache()
-        edgesDF.registerTempTable("edge")
-        val cc = rasqlContext.sql(CCQuery).first()
+        Logger.getLogger("org").setLevel(Level.INFO)
+        Logger.getLogger("akka").setLevel(Level.INFO)
+        val log = LogManager.getRootLogger
+        log.setLevel(Level.INFO)
 
-        println("G: " + graph + "\n\nCC: " + cc + " \n\n\n")
+        // Parsing input arguments
+        @scala.annotation.tailrec
+        def nextOption(map: OptionMap, list: List[String]): OptionMap = {
+            list match {
+                case Nil => map
+                case ("-g" | "-graph") :: value :: tail =>
+                    nextOption(map ++ Map("graph" -> value), tail)
+                case ("-a" | "-algorithm") :: value :: tail =>
+                    nextOption(map ++ Map("algorithm" -> value), tail)
+                case ("-q" | "-query") :: tail =>
+                    nextOption(map ++ Map("query" -> null), tail)
+                case ("-p" | "-partitions") :: value :: tail =>
+                    nextOption(map ++ Map("partitions" -> value), tail)
+                case _ :: tail =>
+                    log.warn("RASQL: Unrecognized argument")
+                    nextOption(map, tail)
+            }
+        }
+
+        val argList = args.toList
+        type OptionMap = Map[String, String]
+        val options = nextOption(Map(), argList)
+
+        val query: String =
+            if(options.contains("algorithm")){
+                options.get("algorithm") match {
+                    case Some("CC") =>
+                        """ WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
+                    case _ => null
+                }
+            }
+            else if (options.contains("query")) readLine()
+            else null
+
+        if (query == null){
+            log.error("No query specified.")
+            sc.stop()
+            return
+        }
+
+        val graphPath = options.getOrElse("graph", null)
+        if(graphPath == null){
+            log.error("No input Graph, use \"-g path_to_graph\" to specify your graph.")
+            sc.stop()
+            return
+        }
+        val partitions : Int  = options.getOrElse("partitions", "10").toInt
+
+        val startTime = Calendar.getInstance().getTimeInMillis
+
+         val edgesRDD = getGraph(sc, graphPath, partitions)
+         val edgesDF = rasqlContext.createDataFrame(edgesRDD, "edge").toDF("Src", "Dst")
+        edgesDF.registerTempTable("edge")
+        edgesDF.cache()
+        val cc = rasqlContext.sql(query).first()
+
+        val endTime = Calendar.getInstance().getTimeInMillis
+
+        log.info("Results: " + cc + " \n\n\n")
+        log.info("Background Time: " + (endTime - startTime) / 1000.0)
         sc.stop()
     }
 }
