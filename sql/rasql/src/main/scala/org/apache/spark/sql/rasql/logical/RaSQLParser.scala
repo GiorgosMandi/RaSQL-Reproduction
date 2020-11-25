@@ -2,7 +2,7 @@ package org.apache.spark.sql.rasql.logical
 
 import org.apache.spark.sql.catalyst.analysis.{UnresolvedAlias, UnresolvedAttribute, UnresolvedExtractValue, UnresolvedFunction, UnresolvedRelation, UnresolvedStar}
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Ascending, AttributeReference, BitwiseAnd, BitwiseNot, BitwiseOr, BitwiseXor, Descending, Divide, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, IsNotNull, IsNull, LessThan, LessThanOrEqual, Like, Literal, Multiply, Not, Or, RLike, Remainder, SortDirection, SortOrder, Subtract, UnaryMinus, aggregate}
+import org.apache.spark.sql.catalyst.expressions.{Add, Alias, And, Ascending, AttributeReference, BinaryOperator, BitwiseAnd, BitwiseNot, BitwiseOr, BitwiseXor, Descending, Divide, EqualNullSafe, EqualTo, Expression, GreaterThan, GreaterThanOrEqual, In, IsNotNull, IsNull, LessThan, LessThanOrEqual, Like, Literal, Multiply, Not, Or, RLike, Remainder, SortDirection, SortOrder, Subtract, UnaryMinus, aggregate}
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.util.DataTypeParser
@@ -70,6 +70,9 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     var fName: String = _
     var attrAlias: UnresolvedAttribute = _
     var mainArg: UnresolvedAttribute = _
+
+    var recPartitionKey: UnresolvedAttribute = _
+    var relPartitionKey: UnresolvedAttribute = _
 
     lazy val rasql: Parser[LogicalPlan] =
         (recursive_cte) ~
@@ -153,9 +156,23 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             (FROM   ~> recursive_relations) ~
             (WHERE  ~> expression).? ^^ {
             case p ~ rr ~ c =>
-                val rrJoin = rr.asInstanceOf[Join]
-                val joined  = Join(rrJoin.left, rrJoin.right, Inner, c)
+                val recRelation = rr._1
+                val rel = rr._2
+
+                val bo = c.asInstanceOf[Some[BinaryOperator]].get
+                recPartitionKey = bo.left.asInstanceOf[UnresolvedAttribute]
+                relPartitionKey = bo.right.asInstanceOf[UnresolvedAttribute]
+
+                val recPartitionedRel = RepartitionByExpression(Seq(recPartitionKey), recRelation, Option(rasqlContext.partitions))
+                val partitionedRel =  RepartitionByExpression(Seq(relPartitionKey), rel, Option(rasqlContext.partitions))
+
+                //val cachedRelation = CacheHint(rel)
+                //val joined  = Join(cachedRelation, recRelation, Inner, c)
+
+                val cachedRelation = CacheHint(partitionedRel)
+                val joined  = Join(cachedRelation, recPartitionedRel, Inner, c)
                 val withProject = Project(p.map(UnresolvedAlias), joined)
+
                 withProject
         }
 
@@ -191,11 +208,12 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
      * Joining the Recursive Relation with the other relations
      * The Recursive Relation is always the first.
      */
-    lazy val recursive_relations: Parser[LogicalPlan] =
+    lazy val recursive_relations: Parser[(Subquery, LogicalPlan)] =
         tableIdentifier ~ ("," ~> relation)^^ {
             case rr ~ rel =>
-                val recursiveRelation = RecursiveRelation(rr, rrAttributes)
-                Join(rel, Subquery(recursiveRelation.tableName, recursiveRelation), Inner, None)
+                val recursiveRelation = Subquery(rr.unquotedString, RecursiveRelation(rr, rrAttributes))
+                (recursiveRelation, rel)
+                //Join(rel, Subquery(recursiveRelation.tableName, recursiveRelation), Inner, None)
         }
 
     // Regular SQL Parsers follow

@@ -1,16 +1,16 @@
 package org.apache.spark.sql.rasql;
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.{DataFrame, SQLContext}
-import org.apache.spark.sql.catalyst.{InternalRow, ScalaReflection}
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry.FunctionBuilder
 import org.apache.spark.sql.catalyst.expressions.ExpressionInfo
+import org.apache.spark.sql.catalyst.{InternalRow, ScalaReflection}
 import org.apache.spark.sql.execution.ui.SQLListener
 import org.apache.spark.sql.execution.{CacheManager, RDDConversions, SparkSQLParser}
-import org.apache.spark.sql.rasql.logical.{MCount, MMax, MMin, MSum, RaSQLParser}
+import org.apache.spark.sql.rasql.logical._
 import org.apache.spark.sql.types.StructType
-import org.apache.spark.{Logging, SparkContext}
+import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.{HashPartitioner, Logging, SparkContext}
 
 import scala.reflect.runtime.universe.TypeTag
 
@@ -24,6 +24,8 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
         with Logging {
 
     self =>
+
+    this.conf.setConfString("spark.sql.join.preferSortMergeJoin", "false")
 
     val mmin: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MMin](name="mmin")
     functionRegistry.registerFunction("mmin", info = mmin._2._1, builder = mmin._2._2)
@@ -50,6 +52,10 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
     val relationCatalog: RelationCatalog = RelationCatalog()
 
     var recursiveTable: String = _
+
+    val partitions: Int = 12
+
+    val hashPartitioner: HashPartitioner = new HashPartitioner(partitions)
 
     def createDataFrame[A <: Product : TypeTag](rdd: RDD[A], name: String): DataFrame = {
         val schema = ScalaReflection.schemaFor[A].dataType.asInstanceOf[StructType]

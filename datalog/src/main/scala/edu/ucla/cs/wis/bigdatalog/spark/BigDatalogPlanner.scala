@@ -227,12 +227,9 @@ class BigDatalogPlanner(val bigDatalogContext: BigDatalogContext)
 
   object CachedEquiJoinSelection extends Strategy {
 
-    private[this] def makeShuffleHashJoin(leftKeys: Seq[Expression],
-                                          rightKeys: Seq[Expression],
-                                          left: LogicalPlan,
-                                          right: LogicalPlan,
-                                          condition: Option[Expression],
-                                          side: joins.BuildSide): Seq[SparkPlan] = {
+    private[this] def makeShuffleHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expression], left: LogicalPlan,
+                                          right: LogicalPlan, condition: Option[Expression], side: joins.BuildSide): Seq[SparkPlan] = {
+
       val shuffleHashJoin = ShuffleHashJoin(leftKeys, rightKeys, side, planLater(left), planLater(right))
       condition.map(Filter(_, shuffleHashJoin)).getOrElse(shuffleHashJoin) :: Nil
     }

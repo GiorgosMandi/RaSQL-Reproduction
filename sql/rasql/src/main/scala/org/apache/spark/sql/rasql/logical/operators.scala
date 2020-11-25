@@ -76,3 +76,10 @@ case class RecursiveAggregate(name: String, left: LogicalPlan, right: LogicalPla
 }
 
 
+/**
+ * A hint for the optimizer that we should cache the `child` if used in a join operator.
+ */
+case class CacheHint(child: LogicalPlan) extends UnaryNode {
+    override def output: Seq[Attribute] = child.output
+}
+

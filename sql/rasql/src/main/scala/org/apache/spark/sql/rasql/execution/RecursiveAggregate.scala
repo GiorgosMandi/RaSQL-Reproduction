@@ -52,12 +52,13 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
             //all.cache()
             //val allCount = all.count()
 
+            // delta becomes the new Recursive Relation for the next iteration
             rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, delta)
 
             if (iteration >= 4 && newItems > 0)
                 sparkContext.
                     getPersistentRDDs.values
-                    .filter(rdd => rdd.name == "all"+(iteration-2) || rdd.name == "all"+(iteration-3) || rdd.name == "delta"+(iteration-2) || rdd.name == "delta"+(iteration-3) )
+                    .filter(rdd => rdd.name == "delta"+(iteration-2) || rdd.name == "delta"+(iteration-3) )
                     .foreach(_.unpersist())
 
             logInfo("Aggregate Recursion iteration: " + iteration)

@@ -5,7 +5,9 @@ package org.apache.spark.sql.rasql.datamodel.setrdd
 import edu.ucla.cs.wis.bigdatalog.spark.execution.aggregates.TungstenMonotonicAggregationIterator
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.rasql.RaSQLContext
 import org.apache.spark.sql.rasql.execution.MonotonicAggregate
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.storage.StorageLevel
@@ -19,7 +21,10 @@ class AggregateSetRDD(val partitionsRDD: RDD[AggregateSetRDDPartition], monotoni
 
     setName("AggregateSetRDD")
 
-    override val partitioner: Option[Partitioner] = partitionsRDD.partitioner
+    @transient
+    final val rasqlContext: RaSQLContext = SQLContext.getActive().get.asInstanceOf[RaSQLContext]
+
+    override val partitioner: Option[Partitioner] = Option(partitionsRDD.partitioner.getOrElse(rasqlContext.hashPartitioner))
 
     override protected def getPreferredLocations(s: Partition): Seq[String] =
         partitionsRDD.preferredLocations(s)
@@ -62,11 +67,11 @@ class AggregateSetRDD(val partitionsRDD: RDD[AggregateSetRDDPartition], monotoni
         this
     }
 
-    override def mapPartitions[U: ClassTag](f: Iterator[InternalRow] => Iterator[U], preservesPartitioning: Boolean = false): RDD[U] = {
+    override def mapPartitions[U: ClassTag](f: Iterator[InternalRow] => Iterator[U], preservesPartitioning: Boolean = true): RDD[U] = {
         partitionsRDD.mapPartitions(iter => f(iter.next().iterator), preservesPartitioning)
     }
 
-    override def mapPartitionsInternal[U: ClassTag](f: Iterator[InternalRow] => Iterator[U], preservesPartitioning: Boolean = false): RDD[U] = {
+    override def mapPartitionsInternal[U: ClassTag](f: Iterator[InternalRow] => Iterator[U], preservesPartitioning: Boolean = true): RDD[U] = {
         partitionsRDD.mapPartitionsInternal(iter => f(iter.next().iterator), preservesPartitioning)
     }
 
