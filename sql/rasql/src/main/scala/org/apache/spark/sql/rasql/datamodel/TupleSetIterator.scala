@@ -5,13 +5,13 @@ import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter}
 
 
-class LongHashSetRowIterator(set: LongSet) extends Iterator[InternalRow]{
+class TupleSetIterator(set: TupleSet) extends Iterator[InternalRow]{
 
-    val rawIter: Iterator[Long] = set.iterator
-    val numFields = 2 // Todo find the number of fields
+    val rawIter: Iterator[(Int, Int)] = set.iterator
     val uRow = new UnsafeRow()
     val bufferHolder = new BufferHolder()
     val rowWriter = new UnsafeRowWriter()
+    val numFields = 2
 
     override final def hasNext(): Boolean = {
         rawIter.hasNext
@@ -22,7 +22,8 @@ class LongHashSetRowIterator(set: LongSet) extends Iterator[InternalRow]{
         rowWriter.initialize(bufferHolder, numFields)
 
         val value = rawIter.next()
-        rowWriter.write(0, value)
+        rowWriter.write(0, value._1)
+        rowWriter.write(1, value._2)
         uRow.pointTo(bufferHolder.buffer, numFields, bufferHolder.totalSize())
         uRow
     }

@@ -1,18 +1,18 @@
 package org.apache.spark.sql.rasql.datamodel.setrdd
 
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.rasql.datamodel.{LongHashSetRowIterator, LongSet}
+import org.apache.spark.sql.rasql.datamodel.{TupleSetIterator, TupleSet}
 
 import scala.reflect.ClassTag
 
-class SetRDDHashSetPartition(val set: LongSet, numFactsGenerated: Long = 0, numFactsDerived: Long = 0) (implicit val cTag: ClassTag[InternalRow])
+class SetRDDHashSetPartition(val set: TupleSet, numFactsGenerated: Long = 0, numFactsDerived: Long = 0)(implicit val cTag: ClassTag[InternalRow])
     extends SetRDDPartition[InternalRow](numFactsGenerated, numFactsDerived) with Serializable {
 
-    def this(set: LongSet) = this(set, 0, 0)
+    def this(set: TupleSet) = this(set, 0, 0)
 
     override def size: Long = set.size()
 
-    override def iterator: Iterator[InternalRow] = new LongHashSetRowIterator(set)
+    override def iterator: Iterator[InternalRow] = new TupleSetIterator(set)
 
     override def union(otherPart: SetRDDPartition[InternalRow], rddId: Int): SetRDDHashSetPartition = {
         val start = System.currentTimeMillis()
@@ -39,7 +39,7 @@ class SetRDDHashSetPartition(val set: LongSet, numFactsGenerated: Long = 0, numF
 
     override def diff(iter: Iterator[InternalRow], rddId: Int): SetRDDHashSetPartition = {
         val start = System.currentTimeMillis()
-        val diffSet = new LongSet()
+        val diffSet = new TupleSet()
         var numFactsGenerated: Long = 0
         iter.foreach { row =>
             numFactsGenerated += 1
@@ -52,7 +52,7 @@ class SetRDDHashSetPartition(val set: LongSet, numFactsGenerated: Long = 0, numF
 
 object SetRDDHashSetPartition {
     def apply(iter: Iterator[InternalRow]): SetRDDHashSetPartition = {
-        val set = new LongSet()
+        val set = new TupleSet()
         iter.foreach(next =>  set.insert(next))
         new SetRDDHashSetPartition(set)
     }

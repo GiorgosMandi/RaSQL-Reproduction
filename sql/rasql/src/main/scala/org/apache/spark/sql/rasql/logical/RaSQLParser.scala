@@ -136,7 +136,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 // An empty RDD is initialized as the Recursive Table
                 val structFields = p
                     .dropRight(1)
-                    .map(ua => StructField(ua.asInstanceOf[UnresolvedAttribute].name, LongType, nullable = false)) :+ StructField(attrAlias.name, LongType, nullable = false)
+                    .map(ua => StructField(ua.asInstanceOf[UnresolvedAttribute].name, IntegerType, nullable = false)) :+ StructField(attrAlias.name, IntegerType, nullable = false)
 
                 val schema = StructType(structFields )
                 rrAttributes = structFields.map(sf => AttributeReference(sf.name, sf.dataType, nullable = false)())

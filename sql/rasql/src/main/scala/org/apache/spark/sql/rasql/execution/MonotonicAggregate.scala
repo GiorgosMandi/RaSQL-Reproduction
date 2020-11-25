@@ -62,7 +62,7 @@ case class MonotonicAggregate(requiredChildDistributionExpressions: Option[Seq[E
     def isCount: Boolean = (nonCompleteAggregateExpressions ++ completeAggregateExpressions).forall(_.aggregateFunction.isInstanceOf[logical.MCount])
 
     override def outputPartitioning: Partitioning = {
-        val numPartitions = rasqlContext.conf.numShufflePartitions
+        val numPartitions = rasqlContext.partitions
         UnknownPartitioning(numPartitions)
     }
 
@@ -81,8 +81,8 @@ case class MonotonicAggregate(requiredChildDistributionExpressions: Option[Seq[E
             allRDD
         }
         else {
-            val (temp1, _) = allRDD.update(child.execute())
-            temp1.asInstanceOf[AggregateSetRDD]
+            val (temp1, temp2) = allRDD.update(child.execute())
+            temp2 //temp1.asInstanceOf[AggregateSetRDD]
         }
     }
 

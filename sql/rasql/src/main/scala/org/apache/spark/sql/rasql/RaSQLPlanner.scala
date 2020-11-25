@@ -8,7 +8,7 @@ import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.{Filter, SparkPlan, SparkPlanner, joins}
 import org.apache.spark.sql.rasql.datamodel.ShuffleHashJoin
-import org.apache.spark.sql.rasql.execution.MonotonicAggregate
+import org.apache.spark.sql.rasql.execution.{MonotonicAggregate, MonotonicAggregatePartial}
 import org.apache.spark.sql.rasql.logical.CacheHint
 
 class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
@@ -145,7 +145,7 @@ class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
                                child: SparkPlan): Seq[SparkPlan] = {
 
         // TODO before it was doing a partial and the a total - now I have changed it
-        // MonotonicAggregation will do partial aggregation
+        // MonotonicAggregation will first do partial aggregation
 
         val groupingAttributes = groupingExpressions.map(_.toAttribute)
         val partialAggregateExpressions = aggregateExpressions.map(_.copy(mode = Partial))
@@ -155,7 +155,7 @@ class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
             groupingAttributes ++
                 partialAggregateExpressions.flatMap(_.aggregateFunction.inputAggBufferAttributes)
 
-        val partialAggregate = MonotonicAggregate(
+        val partialAggregate = MonotonicAggregatePartial(
             requiredChildDistributionExpressions = None: Option[Seq[Expression]],
             groupingExpressions = groupingExpressions,
             nonCompleteAggregateExpressions = partialAggregateExpressions,

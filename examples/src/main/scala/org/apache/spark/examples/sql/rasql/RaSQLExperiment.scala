@@ -28,13 +28,13 @@ import org.apache.spark.{SparkConf, SparkContext}
 object RaSQLExperiment {
 
 
-    def getGraph(sc: SparkContext, filePath: String, numPartitions: Int): RDD[(Long, Long)] = {
+    def getGraph(sc: SparkContext, filePath: String, numPartitions: Int): RDD[(Int, Int)] = {
         sc.textFile(filePath, numPartitions)
             .coalesce(numPartitions)
             .filter(line => !line.trim.isEmpty && (line(0) != '%'))
             .map(line => {
                 val splitLine = line.split("\t")
-                (splitLine(0).toLong, splitLine(1).toLong)
+                (splitLine(0).toInt, splitLine(1).toInt)
             })
     }
 
