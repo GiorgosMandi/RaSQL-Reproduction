@@ -41,6 +41,7 @@ object RaSQLExperiment {
 
     def main(args: Array[String]) {
         val sparkConf = new SparkConf().setAppName("RaSQL-Experiment")
+            .set("spark.shuffle.sort.bypassMergeThreshold", "12")
         val sc = new SparkContext(sparkConf)
         val rasqlContext = new RaSQLContext(sc)
 
@@ -95,7 +96,7 @@ object RaSQLExperiment {
             sc.stop()
             return
         }
-        val partitions : Int  = options.getOrElse("partitions", "10").toInt
+        val partitions : Int  = options.getOrElse("partitions", "12").toInt
 
         val startTime = Calendar.getInstance().getTimeInMillis
 

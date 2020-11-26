@@ -163,14 +163,10 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 recPartitionKey = bo.left.asInstanceOf[UnresolvedAttribute]
                 relPartitionKey = bo.right.asInstanceOf[UnresolvedAttribute]
 
-                val recPartitionedRel = RepartitionByExpression(Seq(recPartitionKey), recRelation, Option(rasqlContext.partitions))
                 val partitionedRel =  RepartitionByExpression(Seq(relPartitionKey), rel, Option(rasqlContext.partitions))
-
-                //val cachedRelation = CacheHint(rel)
-                //val joined  = Join(cachedRelation, recRelation, Inner, c)
-
                 val cachedRelation = CacheHint(partitionedRel)
-                val joined  = Join(cachedRelation, recPartitionedRel, Inner, c)
+
+                val joined  = Join(cachedRelation, recRelation, Inner, c)
                 val withProject = Project(p.map(UnresolvedAlias), joined)
 
                 withProject

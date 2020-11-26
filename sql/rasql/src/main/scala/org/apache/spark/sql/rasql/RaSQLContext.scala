@@ -24,8 +24,7 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
         with Logging {
 
     self =>
-
-    this.conf.setConfString("spark.sql.join.preferSortMergeJoin", "false")
+    var partitions: Int = 12
 
     val mmin: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MMin](name="mmin")
     functionRegistry.registerFunction("mmin", info = mmin._2._1, builder = mmin._2._2)
@@ -53,11 +52,11 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
 
     var recursiveTable: String = _
 
-    val partitions: Int = 12
-
     val hashPartitioner: HashPartitioner = new HashPartitioner(partitions)
 
     def createDataFrame[A <: Product : TypeTag](rdd: RDD[A], name: String): DataFrame = {
+        partitions = rdd.getNumPartitions
+        this.setConf("spark.sql.shuffle.partitions", partitions.toString)
         val schema = ScalaReflection.schemaFor[A].dataType.asInstanceOf[StructType]
         val rowRDD = RDDConversions.productToRowRdd(rdd, schema.map(_.dataType))
         relationCatalog.addRelation(name, schema, rowRDD)

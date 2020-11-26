@@ -39,6 +39,7 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
         var newItems = items
         while(newItems > 0){
             iteration += 1
+
             // calculate the new items
             val delta_ = right.execute()
 
@@ -49,8 +50,6 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
 
             // all = all U delta
             all = all.union(delta_).setName("all"+iteration)
-            //all.cache()
-            //val allCount = all.count()
 
             // delta becomes the new Recursive Relation for the next iteration
             rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, delta)
@@ -62,9 +61,9 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
                     .foreach(_.unpersist())
 
             logInfo("Aggregate Recursion iteration: " + iteration)
-            //logInfo("All RDD size = " + allCount)
             logInfo("New Delta RDD size = " + newItems)
         }
+        all.cache()
     }
 
 }
