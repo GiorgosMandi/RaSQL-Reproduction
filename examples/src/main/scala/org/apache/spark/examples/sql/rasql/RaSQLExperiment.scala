@@ -21,21 +21,48 @@ package org.apache.spark.examples.sql.rasql
 import java.util.Calendar
 
 import org.apache.log4j.{Level, LogManager, Logger}
-import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.rasql.RaSQLContext
 import org.apache.spark.{SparkConf, SparkContext}
 
 object RaSQLExperiment {
 
-
-    def getGraph(sc: SparkContext, filePath: String, numPartitions: Int): RDD[(Int, Int)] = {
-        sc.textFile(filePath, numPartitions)
+    /**
+     * Reading file into grapsh
+     * UNFORTUNATELY, this is an old version of spark and it does not support the CSV Readers of databrick
+     * @param filePath path of file
+     * @param numPartitions target num of partitions
+     * @param raSQLContext SQL context
+     * @return the graph loaded as Dataframe with (Src, Ds, Cost) cols
+     */
+    def getGraphDF2(filePath: String, numPartitions: Int, raSQLContext: RaSQLContext): DataFrame = {
+        val edgesRDD = raSQLContext.sparkContext.textFile(filePath, numPartitions)
             .coalesce(numPartitions)
             .filter(line => !line.trim.isEmpty && (line(0) != '%'))
             .map(line => {
                 val splitLine = line.split("\t")
                 (splitLine(0).toInt, splitLine(1).toInt)
             })
+        raSQLContext.createDataFrame(edgesRDD, "edge").toDF("Src", "Dst")
+    }
+
+    /**
+     * Reading file into grapsh
+     * UNFORTUNATELY, this is an old version of spark and it does not support the CSV Readers of databrick
+     * @param filePath path of file
+     * @param numPartitions target num of partitions
+     * @param raSQLContext SQL context
+     * @return the graph loaded as Dataframe with (Src, Dst, Cost) cols
+     */
+    def getGraphDF3(filePath: String, numPartitions: Int, raSQLContext: RaSQLContext): DataFrame = {
+        val edgesRDD = raSQLContext.sparkContext.textFile(filePath, numPartitions)
+            .coalesce(numPartitions)
+            .filter(line => !line.trim.isEmpty && (line(0) != '%'))
+            .map(line => {
+                val splitLine = line.split("\t")
+                (splitLine(0).toInt, splitLine(1).toInt, splitLine(2).toInt)
+            })
+        raSQLContext.createDataFrame(edgesRDD, "edge").toDF("Src", "Dst", "Cost")
     }
 
 
@@ -68,16 +95,19 @@ object RaSQLExperiment {
                     nextOption(map, tail)
             }
         }
-
         val argList = args.toList
         type OptionMap = Map[String, String]
         val options = nextOption(Map(), argList)
 
+        var isSSSP = false
         val query: String =
             if(options.contains("algorithm")){
                 options.get("algorithm") match {
                     case Some("CC") =>
                         """ WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
+                    case Some("SSSP") =>
+                        isSSSP = true
+                        """WITH recursive path(Dst, mmin AS Cost) AS (SELECT 5, 0) UNION (SELECT edge.Dst, path.Cost + edge.Cost FROM path, edge WHERE path.Dst = edge.Src) SELECT Dst, Cost FROM path"""
                     case _ => null
                 }
             }
@@ -100,15 +130,16 @@ object RaSQLExperiment {
 
         val startTime = Calendar.getInstance().getTimeInMillis
 
-         val edgesRDD = getGraph(sc, graphPath, partitions)
-         val edgesDF = rasqlContext.createDataFrame(edgesRDD, "edge").toDF("Src", "Dst")
+         val edgesDF = if (isSSSP)getGraphDF3(graphPath, partitions, rasqlContext)
+                        else getGraphDF2(graphPath, partitions, rasqlContext)
         edgesDF.registerTempTable("edge")
         edgesDF.cache()
-        val cc = rasqlContext.sql(query).first()
+        val results = rasqlContext.sql(query).take(50)
+
 
         val endTime = Calendar.getInstance().getTimeInMillis
-
-        log.info("Results: " + cc + " \n\n\n")
+        log.info("Printing results: \n")
+        results.foreach(row => println(row.toString()))
         log.info("Background Time: " + (endTime - startTime) / 1000.0)
         sc.stop()
     }
