@@ -75,16 +75,6 @@ case class Analyzer(catalog: Catalog,
                         // delay the exception into CheckAnalysis, then it could be resolved as data source.
                         rr
                 }
-//            case ct: CacheTableCommand if ct.plan.get.isInstanceOf[UnresolvedRelation] =>
-//                try {
-//                    val unresolvedRelation = ct.plan.get.asInstanceOf[UnresolvedRelation]
-//                    val resolvedRelation = getTable(unresolvedRelation)
-//                    CacheTableCommand(unresolvedRelation.tableName, Option(resolvedRelation), isLazy = true)
-//                } catch {
-//                    case _: AnalysisException if ct.plan.get.asInstanceOf[UnresolvedRelation].tableIdentifier.database.isDefined =>
-//                        // delay the exception into CheckAnalysis, then it could be resolved as data source.
-//                        ct.plan.get.asInstanceOf[UnresolvedRelation]
-//                }
 
         }
     }

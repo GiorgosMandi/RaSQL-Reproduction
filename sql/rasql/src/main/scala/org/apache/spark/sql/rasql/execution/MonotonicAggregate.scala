@@ -82,7 +82,7 @@ case class MonotonicAggregate(requiredChildDistributionExpressions: Option[Seq[E
         }
         else {
             val (temp1, temp2) = allRDD.update(child.execute())
-            temp2 //temp1.asInstanceOf[AggregateSetRDD]
+            temp2
         }
     }
 

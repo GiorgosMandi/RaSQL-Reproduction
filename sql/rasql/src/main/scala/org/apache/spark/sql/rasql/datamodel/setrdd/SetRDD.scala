@@ -83,7 +83,7 @@ class SetRDD(var partitionsRDD: RDD[SetRDDPartition[InternalRow]]) extends RDD[I
 
     def diff(other: RDD[InternalRow]): SetRDD = {
         val diffRDD = other match {
-            case other: SetRDD if partitioner == other.partitioner =>
+            case other: SetRDD => // if partitioner == other.partitioner =>
                 this.zipSetRDDPartitions(other)((thisIter, otherIter) => {
                     val thisPart = thisIter.next()
                     val otherPart = otherIter.next()
