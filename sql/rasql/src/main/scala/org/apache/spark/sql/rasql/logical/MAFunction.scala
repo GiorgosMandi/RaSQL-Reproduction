@@ -4,7 +4,7 @@ package org.apache.spark.sql.rasql.logical
 
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, AttributeSet, Cast, Expression, Greatest, If, IsNull, Least, Literal, Or, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, AttributeSet, Cast, Coalesce, Expression, Greatest, If, IsNull, Least, Literal, Or, Unevaluable}
 import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types.{AbstractDataType, AnyDataType, DataType, LongType}
 
@@ -77,15 +77,21 @@ case class MSum(child: Expression) extends MonotonicAggregateFunction {
 
     private lazy val msum = AttributeReference("msum", child.dataType)()
 
+    private lazy val zero = Cast(Literal(0), child.dataType)
+
     override lazy val aggBufferAttributes: Seq[AttributeReference] = msum :: Nil
 
     override lazy val initialValues: Seq[Literal] = Seq(Literal.create(null, child.dataType))
 
-    override lazy val updateExpressions: Seq[Expression] = Seq(Add(msum, child))
+    override lazy val updateExpressions: Seq[Expression] = // Seq(Add(msum, child))
+        Seq(Coalesce(Seq(Add(Coalesce(Seq(msum, zero)), Cast(child, child.dataType)), msum)))
 
-    override lazy val mergeExpressions: Seq[Expression] = Seq(Add(msum.left, msum.right))
+    override lazy val mergeExpressions: Seq[Expression] = { // Seq(Add(msum.left, msum.right))
+        val add = Add(Coalesce(Seq(msum.left, zero)), Cast(msum.right, child.dataType))
+        Seq(Coalesce(Seq(add, msum.left)))
+    }
 
-    override lazy val evaluateExpression: AttributeReference = msum
+    override lazy val evaluateExpression: Expression = Cast(msum, child.dataType)
 }
 
 
