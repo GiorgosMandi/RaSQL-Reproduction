@@ -26,6 +26,10 @@ import edu.ucla.cs.wis.bigdatalog.spark.BigDatalogContext
 
 import scala.collection.mutable.StringBuilder
 
+
+// bin/spark-submit --master local[*] --conf spark.datalog.recursion.memorycheckpoint=false --class org.apache.spark.examples.datalog.Experiments  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.2.0.jar -program=41 -file=/home/gmandi/Documents/DSIT/Database-Systems/RaSQL-Reproduction/graphs/small
+
+// bin/spark-submit --master local[*] --conf spark.datalog.recursion.memorycheckpoint=false --class org.apache.spark.examples.datalog.Experiments  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.2.0.jar -program=32 -file=/home/gmandi/Documents/DSIT/Database-Systems/RaSQL-Reproduction/graphs/small_cost -startvertex=7
 object Experiments {
 
   def main(args: Array[String]): Unit = {

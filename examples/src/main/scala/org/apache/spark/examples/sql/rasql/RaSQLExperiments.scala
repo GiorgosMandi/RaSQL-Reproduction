@@ -25,7 +25,7 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.rasql.RaSQLContext
 import org.apache.spark.{SparkConf, SparkContext}
 
-object RaSQLExperiment {
+object RaSQLExperiments {
 
     /**
      * Reading file into grapsh
@@ -90,6 +90,8 @@ object RaSQLExperiment {
                     nextOption(map ++ Map("query" -> null), tail)
                 case ("-p" | "-partitions") :: value :: tail =>
                     nextOption(map ++ Map("partitions" -> value), tail)
+                case ("-v" | "-vertex") :: value :: tail =>
+                    nextOption(map ++ Map("startVertex" -> value), tail)
                 case _ :: tail =>
                     log.warn("RASQL: Unrecognized argument")
                     nextOption(map, tail)
@@ -100,14 +102,32 @@ object RaSQLExperiment {
         val options = nextOption(Map(), argList)
 
         var isSSSP = false
+        val vertex = options.getOrElse("vertex", "1")
         val query: String =
             if(options.contains("algorithm")){
                 options.get("algorithm") match {
                     case Some("CC") =>
-                        """ WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
+                        //  WITH recursive cc(Src, mmin AS CmpId) AS
+                        //  | (SELECT Src, Src FROM edge)
+                        //  | UNION
+                        //  | (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)
+                        //  |SELECT count(distinct cc.CmpId) FROM cc
+                        raw""" WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT cc.CmpId FROM cc"""
                     case Some("SSSP") =>
+                        // WITH recursive path(Dst, mmin AS Cost) AS
+                        // | (SELECT 5, 0)
+                        // | UNION
+                        // | (SELECT edge.Dst, path.Cost + edge.Cost FROM path, edge WHERE path.Dst = edge.Src)
+                        //  SELECT Dst, Cost FROM path
                         isSSSP = true
-                        """WITH recursive path(Dst, mmin AS Cost) AS (SELECT 5, 0) UNION (SELECT edge.Dst, path.Cost + edge.Cost FROM path, edge WHERE path.Dst = edge.Src) SELECT Dst, Cost FROM path"""
+                        raw"""WITH recursive path(Dst, mmin AS Cost) AS (SELECT $vertex, 0) UNION (SELECT edge.Dst, path.Cost + edge.Cost FROM path, edge WHERE path.Dst = edge.Src) SELECT Dst, Cost FROM path"""
+                    case Some("CP") =>
+                        // WITH recursive cpaths(Dst, msum AS Cnt) AS
+                        // | (SELECT 1, 1)
+                        // | UNION
+                        // | ( SELECT edge.Dst, cpaths.Cnt FROM cpaths, edge WHERE cpaths.Dst = edge.Src)
+                        // | SELECT Dst, Cnt FROM cpaths
+                        raw"""WITH recursive cpaths(Dst, msum AS Cnt) AS (SELECT $vertex, 1) UNION ( SELECT edge.Dst, cpaths.Cnt FROM cpaths, edge WHERE cpaths.Dst = edge.Src) SELECT  Dst, Cnt FROM cpaths"""
                     case _ => null
                 }
             }
@@ -134,13 +154,11 @@ object RaSQLExperiment {
                         else getGraphDF2(graphPath, partitions, rasqlContext)
         edgesDF.registerTempTable("edge")
         edgesDF.cache()
-        val results = rasqlContext.sql(query).take(50)
-
-
-        val endTime = Calendar.getInstance().getTimeInMillis
+        val results = rasqlContext.sql(query).collect()
         log.info("Printing results: \n")
-        results.foreach(row => println(row.toString()))
-        log.info("Background Time: " + (endTime - startTime) / 1000.0)
+        log.info(results.mkString("\n"))
+        val endTime = Calendar.getInstance().getTimeInMillis
+        log.info("Background Time: " + (endTime - startTime) / 1000.0 + "\n")
         sc.stop()
     }
 }
