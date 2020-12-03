@@ -191,7 +191,7 @@ object HashedRelation {
  *   ...
  */
 private[joins] final class UnsafeHashedRelation(
-    private var hashTable: JavaHashMap[UnsafeRow, CompactBuffer[UnsafeRow]])
+    /*private*/ var hashTable: JavaHashMap[UnsafeRow, CompactBuffer[UnsafeRow]])
   extends HashedRelation
   with KnownSizeEstimation
   with Externalizable {
@@ -201,7 +201,6 @@ private[joins] final class UnsafeHashedRelation(
   // Use BytesToBytesMap in executor for better performance (it's created when deserialization)
   // This is used in broadcast joins and distributed mode only
   @transient private[this] var binaryMap: BytesToBytesMap = _
-
   /**
    * Return the size of the unsafe map on the executors.
    *
