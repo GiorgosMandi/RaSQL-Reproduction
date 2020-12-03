@@ -48,11 +48,11 @@ object GraphXExperiments {
             return
         }
         val partitions : Int  = options.getOrElse("partitions", "12").toInt
-
+        val startTime = Calendar.getInstance().getTimeInMillis
         val graphRDD = GraphLoader.edgeListFile(sc, graphPath,
             numEdgePartitions = partitions).cache()
 
-        val startTime = Calendar.getInstance().getTimeInMillis
+
         val vertex = options.getOrElse("vertex", "1").toInt
         val results =  options.getOrElse("algorithm", "CC") match {
             case "CC" =>

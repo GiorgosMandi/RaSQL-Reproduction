@@ -33,10 +33,6 @@ class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregat
         val before = this.size
         // this is going to perform the aggregation and return an iterator over the output
         val maIter = monotonicAggregate.getAggregationIterator(iter, aggregateStore)
-
-        logInfo("Update deltaSPrime set size before %s after %s, delta set size %s took %s ms"
-            .format(before, aggregateStore.numElements(), maIter.deltaSet.size, System.currentTimeMillis() - start))
-
         val hashMapIter = new JavaHashMapIterator(maIter.deltaSet, monotonicAggregate.generateResultProjection())
 
         (new AggregateSetRDDPartition(aggregateStore, monotonicAggregate), SetRDDHashSetPartition(hashMapIter))

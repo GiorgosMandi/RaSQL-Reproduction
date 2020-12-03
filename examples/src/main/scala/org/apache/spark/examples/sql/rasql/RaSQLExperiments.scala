@@ -112,7 +112,7 @@ object RaSQLExperiments {
                         //  | UNION
                         //  | (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)
                         //  |SELECT count(distinct cc.CmpId) FROM cc
-                        raw""" WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT cc.CmpId FROM cc"""
+                        raw""" WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
                     case Some("SSSP") =>
                         // WITH recursive path(Dst, mmin AS Cost) AS
                         // | (SELECT 5, 0)
@@ -150,13 +150,14 @@ object RaSQLExperiments {
 
         val startTime = Calendar.getInstance().getTimeInMillis
 
-         val edgesDF = if (isSSSP)getGraphDF3(graphPath, partitions, rasqlContext)
+         val edgesDF = if (isSSSP) getGraphDF3(graphPath, partitions, rasqlContext)
                         else getGraphDF2(graphPath, partitions, rasqlContext)
         edgesDF.registerTempTable("edge")
         edgesDF.cache()
         val results = rasqlContext.sql(query).collect()
         log.info("Printing results: \n")
         log.info(results.mkString("\n"))
+        log.info("Total: " + results.length + "\n")
         val endTime = Calendar.getInstance().getTimeInMillis
         log.info("Background Time: " + (endTime - startTime) / 1000.0 + "\n")
         sc.stop()

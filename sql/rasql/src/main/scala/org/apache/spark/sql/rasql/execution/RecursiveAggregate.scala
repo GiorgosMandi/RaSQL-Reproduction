@@ -50,6 +50,7 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
 
             // all = all U delta
             all = all.union(delta_).setName("all"+iteration)
+            all.cache()
 
             // delta becomes the new Recursive Relation for the next iteration
             rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, delta)
@@ -57,13 +58,14 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
             if (iteration >= 4 && newItems > 0)
                 sparkContext.
                     getPersistentRDDs.values
-                    .filter(rdd => rdd.name == "delta"+(iteration-2) || rdd.name == "delta"+(iteration-3) )
+                    .filter(rdd => rdd.name == "delta"+(iteration-2) || rdd.name == "delta"+(iteration-3) ||
+                        rdd.name == "all"+(iteration-2) || rdd.name == "all"+(iteration-3))
                     .foreach(_.unpersist())
 
             logInfo("Aggregate Recursion iteration: " + iteration)
             logInfo("New Delta RDD size = " + newItems)
         }
-        all.cache()
+        //all.cache()
     }
 
 }
