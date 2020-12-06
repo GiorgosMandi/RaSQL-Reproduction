@@ -104,7 +104,7 @@ class AggregateSetRDD(val partitionsRDD: RDD[AggregateSetRDDPartition], monotoni
         val allSetRDD: RDD[AggregateSetRDDPartition] = newPartitionsRDD
             .mapPartitionsInternal(_.map(_._1), preservesPartitioning = true)
 
-        val deltaSPrimeRDD: RDD[SetRDDPartition[InternalRow]] = newPartitionsRDD
+        val deltaSPrimeRDD: RDD[HashSetPartition] = newPartitionsRDD
             .mapPartitionsInternal(_.map(_._2), preservesPartitioning = true)
 
         (new AggregateSetRDD(allSetRDD, monotonicAggregate).setName("AggregateSetRDD - all"),
@@ -148,7 +148,7 @@ object AggregateSetRDD extends Logging {
                     spillSize,
                     null)
 
-                Iterator(new AggregateSetRDDPartition(taIter.hashMap, monotonicAggregate))
+                Iterator(new AggregateSetRDDPartition(taIter.hashMap, monotonicAggregate, schema.length))
             }, preservesPartitioning = true)
 
             output.asInstanceOf[RDD[AggregateSetRDDPartition]]

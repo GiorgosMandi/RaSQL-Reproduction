@@ -1,4 +1,4 @@
-package org.apache.spark.sql.rasql.datamodel
+package org.apache.spark.sql.rasql.datamodel.internalset
 
 import org.apache.spark.sql.catalyst.InternalRow
 
@@ -6,7 +6,10 @@ import scala.collection.mutable
 
 class TupleSet extends InternalSet {
     type T = (Int, Int)
+
     var set: mutable.HashSet[(Int, Int)] = mutable.HashSet()
+
+    val numFields = 2
 
     override def insert(row: InternalRow): Unit = set.add(getKey(row), getValue(row))
 
@@ -27,6 +30,5 @@ class TupleSet extends InternalSet {
     def iterator: Iterator[(Int, Int)] = set.iterator
 
     override def size(): Int = set.size
-
 
 }

@@ -60,8 +60,7 @@ object GraphXExperiments {
                 cc.vertices.map { case (_, data) => data }.distinct().collect()
             case "SSSP" =>
                 val weightedGraphRDD = graphRDD.mapEdges(e => e.attr.toDouble)
-
-                val initialGraph = weightedGraphRDD.mapVertices((id, _) => if (id == vertex) 0.0 else Double.PositiveInfinity)
+                val initialGraph: Graph[Double, Double] = weightedGraphRDD.mapVertices((id, _) => if (id == vertex) 0d else Double.PositiveInfinity)
                 val sssp = initialGraph.pregel(Double.PositiveInfinity)(
                         (id, dist, newDist) => math.min(dist, newDist), // Vertex Program
                         triplet => {  // Send Message
@@ -75,11 +74,21 @@ object GraphXExperiments {
                     )
                 sssp.vertices.collect()
             case "CP" =>
-                var g: Graph[(Int, Int), Int] = graphRDD.mapVertices((id, _) => (if (id == vertex) 0 else Int.MaxValue, 0)).cache()
-                null
+                val initialGraph: Graph[Double, Int] = graphRDD.mapVertices ((id, _) => if (id == vertex) 1 else 0 )
+                val cPaths = initialGraph.pregel(initialMsg = 1)(
+                    (id, cp1, cp2) =>  cp1 + cp2,
+                    triplet => {
+                        if (triplet.srcAttr.toInt == 1)
+                            Iterator((triplet.dstId, triplet.srcAttr.toInt + triplet.attr))
+                        else
+                            Iterator.empty
+                    },
+                    (a, b) => a + b
+                )
+                cPaths.vertices.collect()
         }
         log.info(results.mkString("\n"))
-
+        log.info(results.length)
         val endTime = Calendar.getInstance().getTimeInMillis
         log.info("Background Time: " + (endTime - startTime) / 1000.0 + "\n")
         sc.stop()

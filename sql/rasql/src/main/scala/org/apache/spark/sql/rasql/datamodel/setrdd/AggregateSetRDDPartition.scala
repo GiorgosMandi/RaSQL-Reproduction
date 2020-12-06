@@ -10,7 +10,7 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.rasql.execution.MonotonicAggregate
 
-class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregationMap, monotonicAggregate: MonotonicAggregate) extends Serializable with Logging{
+class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregationMap, monotonicAggregate: MonotonicAggregate, numFields: Int) extends Serializable with Logging{
 
     def size: Int = aggregateStore.numElements()
 
@@ -27,15 +27,13 @@ class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregat
      * @param monotonicAggregate examined monotonic aggregation
      * @return
      */
-    def update(iter: Iterator[InternalRow], monotonicAggregate: MonotonicAggregate): (AggregateSetRDDPartition, SetRDDPartition[InternalRow]) = {
+    def update(iter: Iterator[InternalRow], monotonicAggregate: MonotonicAggregate): (AggregateSetRDDPartition, HashSetPartition) = {
 
-        val start = System.currentTimeMillis()
-        val before = this.size
         // this is going to perform the aggregation and return an iterator over the output
         val maIter = monotonicAggregate.getAggregationIterator(iter, aggregateStore)
         val hashMapIter = new JavaHashMapIterator(maIter.deltaSet, monotonicAggregate.generateResultProjection())
 
-        (new AggregateSetRDDPartition(aggregateStore, monotonicAggregate), SetRDDHashSetPartition(hashMapIter))
+        (new AggregateSetRDDPartition(aggregateStore, monotonicAggregate, numFields), HashSetPartition(hashMapIter, numFields))
     }
 }
 

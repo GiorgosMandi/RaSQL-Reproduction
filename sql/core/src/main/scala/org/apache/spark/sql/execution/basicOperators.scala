@@ -43,14 +43,16 @@ case class Project(projectList: Seq[NamedExpression], child: SparkPlan) extends 
 
   protected override def doExecute(): RDD[InternalRow] = {
     val numRows = longMetric("numRows")
-    child.execute().mapPartitionsInternal { iter =>
+    val childRDD = child.execute()
+    val projected = childRDD.mapPartitionsInternal ({ iter =>
       val project = UnsafeProjection.create(projectList, child.output,
         subexpressionEliminationEnabled)
       iter.map { row =>
         numRows += 1
         project(row)
       }
-    }
+    }, preservesPartitioning = true)
+    projected.asInstanceOf[RDD[InternalRow]]
   }
 
   override def outputOrdering: Seq[SortOrder] = child.outputOrdering

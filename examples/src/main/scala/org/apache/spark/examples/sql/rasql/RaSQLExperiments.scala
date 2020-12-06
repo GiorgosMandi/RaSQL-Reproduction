@@ -91,7 +91,7 @@ object RaSQLExperiments {
                 case ("-p" | "-partitions") :: value :: tail =>
                     nextOption(map ++ Map("partitions" -> value), tail)
                 case ("-v" | "-vertex") :: value :: tail =>
-                    nextOption(map ++ Map("startVertex" -> value), tail)
+                    nextOption(map ++ Map("vertex" -> value), tail)
                 case _ :: tail =>
                     log.warn("RASQL: Unrecognized argument")
                     nextOption(map, tail)
@@ -128,6 +128,13 @@ object RaSQLExperiments {
                         // | ( SELECT edge.Dst, cpaths.Cnt FROM cpaths, edge WHERE cpaths.Dst = edge.Src)
                         // | SELECT Dst, Cnt FROM cpaths
                         raw"""WITH recursive cpaths(Dst, msum AS Cnt) AS (SELECT $vertex, 1) UNION ( SELECT edge.Dst, cpaths.Cnt FROM cpaths, edge WHERE cpaths.Dst = edge.Src) SELECT  Dst, Cnt FROM cpaths"""
+                    case Some("REACH") =>
+                        // WITH recursive reach(Dst) AS
+                        // | (SELECT $vertex)
+                        // | UNION
+                        // | (SELECT edge.Dst FROM reach, edge WHERE reach.Dst = edge.Src)
+                        // | SELECT Dst FROM reach
+                        raw"""WITH recursive reach(Dst) AS (SELECT $vertex) UNION ( SELECT edge.Dst FROM reach, edge WHERE reach.Dst = edge.Src) SELECT Dst FROM reach"""
                     case _ => null
                 }
             }
@@ -153,7 +160,7 @@ object RaSQLExperiments {
          val edgesDF = if (isSSSP) getGraphDF3(graphPath, partitions, rasqlContext)
                         else getGraphDF2(graphPath, partitions, rasqlContext)
         edgesDF.registerTempTable("edge")
-        edgesDF.cache()
+        // edgesDF.cache()
         val results = rasqlContext.sql(query).collect()
         log.info("Printing results: \n")
         log.info(results.mkString("\n"))
