@@ -3,8 +3,7 @@ package org.apache.spark.examples.sql.rasql
 import java.util.Calendar
 
 import org.apache.log4j.{Level, LogManager, Logger}
-import org.apache.spark.graphx.lib.ConnectedComponents
-import org.apache.spark.graphx.{Graph, GraphLoader, GraphXUtils}
+import org.apache.spark.graphx._
 import org.apache.spark.{SparkConf, SparkContext}
 
 object GraphXExperiments {
@@ -56,38 +55,84 @@ object GraphXExperiments {
         val vertex = options.getOrElse("vertex", "1").toInt
         val results =  options.getOrElse("algorithm", "CC") match {
             case "CC" =>
-                val cc = ConnectedComponents.run(graphRDD)
-                cc.vertices.map { case (_, data) => data }.distinct().collect()
+                /**
+                 * Connected Components Algorithm (CC)
+                 * My implementation as the default acts like the graph is non-directed
+                 */
+                val initialGraph: Graph[Int, Int] = graphRDD.mapVertices((id, attr) => id.toInt)
+
+                /**
+                 * Dst gets the cmpId of src if its smaller
+                 * otherwise dst cmpId does not change
+                 * The algorithm exits when it reaches max iterations
+                 */
+                def sendMessage(edge: EdgeTriplet[Int, Int]): Iterator[(VertexId, Int)] = {
+                    if (edge.srcAttr < edge.dstAttr)
+                        Iterator((edge.dstId, edge.srcAttr))
+                    else if (edge.srcAttr == edge.dstAttr)
+                        Iterator.empty
+                    else Iterator((edge.dstId, edge.dstAttr))
+                }
+
+                val cc = Pregel(initialGraph, Int.MaxValue, maxIterations = 20)(
+                    vprog = (id, attr, msg) => math.min(attr, msg),
+                    sendMsg = sendMessage,
+                    mergeMsg = (a, b) => math.min(a, b))
+
+                cc.vertices.map { case (v1, v2) => v2 }.distinct().collect()
+
             case "SSSP" =>
-                val weightedGraphRDD = graphRDD.mapEdges(e => e.attr.toDouble)
-                val initialGraph: Graph[Double, Double] = weightedGraphRDD.mapVertices((id, _) => if (id == vertex) 0d else Double.PositiveInfinity)
-                val sssp = initialGraph.pregel(Double.PositiveInfinity)(
-                        (id, dist, newDist) => math.min(dist, newDist), // Vertex Program
-                        triplet => {  // Send Message
-                            if (triplet.srcAttr + triplet.attr < triplet.dstAttr) {
-                                Iterator((triplet.dstId, triplet.srcAttr + triplet.attr))
-                            } else {
-                                Iterator.empty
-                            }
-                        },
-                        (a, b) => math.min(a, b) // Merge Message
-                    )
+                /**
+                 * Single-Source Shortest Path (SSSP)
+                 * Finds the shortest path from source to all nodes
+                 * */
+                val initialGraph: Graph[Int, Int] = graphRDD.mapVertices((id, _) => if (id == vertex) 0 else Int.MaxValue)
+
+                /**
+                 * if the examined path is smaller than the existing, update,
+                 * else exit. The graph is initialized with max Int value for
+                 * path to each vertex.
+                 */
+                def sendMessage(edge: EdgeTriplet[Int, Int]): Iterator[(VertexId, Int)] = {
+                    if (edge.srcAttr + edge.attr < edge.dstAttr)
+                        Iterator((edge.dstId, edge.srcAttr + edge.attr))
+                    else
+                        Iterator.empty
+                }
+                val sssp = initialGraph.ops.pregel(Int.MaxValue)(
+                    vprog = (id, attr, msg) => math.min(attr, msg),
+                    sendMsg = sendMessage,
+                    mergeMsg = (a, b) => math.min(a, b))
                 sssp.vertices.collect()
-            case "CP" =>
-                val initialGraph: Graph[Double, Int] = graphRDD.mapVertices ((id, _) => if (id == vertex) 1 else 0 )
-                val cPaths = initialGraph.pregel(initialMsg = 1)(
-                    (id, cp1, cp2) =>  cp1 + cp2,
-                    triplet => {
-                        if (triplet.srcAttr.toInt == 1)
-                            Iterator((triplet.dstId, triplet.srcAttr.toInt + triplet.attr))
-                        else
-                            Iterator.empty
-                    },
-                    (a, b) => a + b
-                )
-                cPaths.vertices.collect()
+
+            case "REACH" =>
+                /**
+                 *  Reachability (REACH)
+                 *  Find the vertices that are reachable from the initial node
+                 */
+                val initialGraph: Graph[Boolean,Int] = graphRDD.mapVertices((id, _) => if (id == vertex) true else false)
+
+                /**
+                 *  If the source is reachable, then make destination also reachable (1).
+                 *  In the initial graph, all vertices are set to in-reachable (0) except the initial
+                 *  vertex
+                 */
+                def sendMessage(edge: EdgeTriplet[Boolean, Int]): Iterator[(VertexId, Boolean)] = {
+                    if (edge.srcAttr && edge.dstAttr)
+                        Iterator.empty
+                    else if (edge.srcAttr)
+                        Iterator((edge.dstId, true))
+                    else
+                        Iterator((edge.dstId, false))
+                }
+                val reach = initialGraph.ops.pregel(initialMsg = false, maxIterations = 20)(
+                    vprog = (id, attr, msg) => (attr || msg),
+                    sendMsg = sendMessage,
+                    mergeMsg = (a, b) => (a || b))
+                reach.vertices.collect()
         }
-        log.info(results.mkString("\n"))
+
+        log.info("\n" + results.mkString("\n"))
         log.info(results.length)
         val endTime = Calendar.getInstance().getTimeInMillis
         log.info("Background Time: " + (endTime - startTime) / 1000.0 + "\n")
