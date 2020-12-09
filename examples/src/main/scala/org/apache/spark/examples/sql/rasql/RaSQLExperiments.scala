@@ -36,8 +36,7 @@ object RaSQLExperiments {
      * @return the graph loaded as Dataframe with (Src, Ds, Cost) cols
      */
     def getGraphDF2(filePath: String, numPartitions: Int, raSQLContext: RaSQLContext): DataFrame = {
-        val edgesRDD = raSQLContext.sparkContext.textFile(filePath, numPartitions)
-            .coalesce(numPartitions)
+        val edgesRDD = raSQLContext.sparkContext.textFile(filePath)
             .filter(line => !line.trim.isEmpty && (line(0) != '%'))
             .map(line => {
                 val splitLine = line.split("\t")
@@ -56,7 +55,7 @@ object RaSQLExperiments {
      */
     def getGraphDF3(filePath: String, numPartitions: Int, raSQLContext: RaSQLContext): DataFrame = {
         val edgesRDD = raSQLContext.sparkContext.textFile(filePath, numPartitions)
-            .coalesce(numPartitions)
+            .repartition(numPartitions)
             .filter(line => !line.trim.isEmpty && (line(0) != '%'))
             .map(line => {
                 val splitLine = line.split("\t")
@@ -67,10 +66,6 @@ object RaSQLExperiments {
 
 
     def main(args: Array[String]) {
-        val sparkConf = new SparkConf().setAppName("RaSQL-Experiment")
-            .set("spark.shuffle.sort.bypassMergeThreshold", "12")
-        val sc = new SparkContext(sparkConf)
-        val rasqlContext = new RaSQLContext(sc)
 
         Logger.getLogger("org").setLevel(Level.INFO)
         Logger.getLogger("akka").setLevel(Level.INFO)
@@ -111,7 +106,7 @@ object RaSQLExperiments {
                         //  | (SELECT Src, Src FROM edge)
                         //  | UNION
                         //  | (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)
-                        //  |SELECT count(distinct cc.CmpId) FROM cc
+                        //  | SELECT count(distinct cc.CmpId) FROM cc
                         raw""" WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
                     case Some("SSSP") =>
                         // WITH recursive path(Dst, mmin AS Cost) AS
@@ -141,6 +136,15 @@ object RaSQLExperiments {
             else if (options.contains("query")) readLine()
             else null
 
+        val partitions : Int  = options.getOrElse("partitions", "12").toInt
+
+        val sparkConf = new SparkConf().setAppName("RaSQL-Experiment")
+            .set("spark.default.parallelism", partitions.toString)
+            .set("spark.shuffle.sort.bypassMergeThreshold", partitions.toString)
+        val sc = new SparkContext(sparkConf)
+        val rasqlContext = new RaSQLContext(sc)
+
+
         if (query == null){
             log.error("No query specified.")
             sc.stop()
@@ -153,17 +157,16 @@ object RaSQLExperiments {
             sc.stop()
             return
         }
-        val partitions : Int  = options.getOrElse("partitions", "12").toInt
 
         val startTime = Calendar.getInstance().getTimeInMillis
 
          val edgesDF = if (isSSSP) getGraphDF3(graphPath, partitions, rasqlContext)
                         else getGraphDF2(graphPath, partitions, rasqlContext)
         edgesDF.registerTempTable("edge")
-        // edgesDF.cache()
+        edgesDF.cache()
         val results = rasqlContext.sql(query).collect()
         log.info("Printing results: \n")
-        log.info(results.mkString("\n"))
+        println(results.mkString("\n"))
         log.info("Total: " + results.length + "\n")
         val endTime = Calendar.getInstance().getTimeInMillis
         log.info("Background Time: " + (endTime - startTime) / 1000.0 + "\n")

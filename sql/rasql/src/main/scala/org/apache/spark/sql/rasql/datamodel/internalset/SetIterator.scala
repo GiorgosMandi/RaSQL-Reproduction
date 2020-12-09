@@ -4,6 +4,9 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
 import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRowWriter}
 
+import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
+
 
 class SetIterator(set: InternalSet) extends Iterator[InternalRow]{
 
@@ -32,5 +35,11 @@ class SetIterator(set: InternalSet) extends Iterator[InternalRow]{
                 uRow.pointTo(bufferHolder.buffer, numFields, bufferHolder.totalSize())
         }
         uRow
+    }
+
+    def get(): Seq[InternalRow] ={
+        val rows: ListBuffer[InternalRow] = mutable.ListBuffer()
+        while(hasNext()) rows.append(next())
+        rows
     }
 }
