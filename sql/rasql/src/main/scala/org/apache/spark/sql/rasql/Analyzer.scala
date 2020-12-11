@@ -6,7 +6,7 @@ import org.apache.spark.sql.catalyst.analysis.{Catalog, ComputeCurrentTime, Dist
 import org.apache.spark.sql.catalyst.expressions.{Alias, Cast, CreateStruct, CreateStructUnsafe, Expression, Generator, NamedExpression, SortOrder}
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.rasql.logical.{MonotonicAggregate, RecursiveRelation}
+import org.apache.spark.sql.rasql.logical.{MonotonicAggregateGlobal, MonotonicAggregatePartial, RecursiveRelation}
 
 case class Analyzer(catalog: Catalog,
                     registry: FunctionRegistry,
@@ -103,8 +103,11 @@ case class Analyzer(catalog: Catalog,
                 case Aggregate(groups, aggs, child) if child.resolved && hasUnresolvedAlias(aggs) =>
                     Aggregate(groups, assignAliases(aggs), child)
 
-                case MonotonicAggregate(groups, aggs, child) if child.resolved && hasUnresolvedAlias(aggs) =>
-                    MonotonicAggregate(assignAliases(groups.asInstanceOf[Seq[NamedExpression]]), assignAliases(aggs), child)
+                case MonotonicAggregatePartial(groups, aggs, child) if child.resolved && hasUnresolvedAlias(aggs) =>
+                    MonotonicAggregatePartial(assignAliases(groups.asInstanceOf[Seq[NamedExpression]]), assignAliases(aggs), child)
+
+                case MonotonicAggregateGlobal(groups, aggs, child) if child.resolved && hasUnresolvedAlias(aggs) =>
+                    MonotonicAggregateGlobal(assignAliases(groups.asInstanceOf[Seq[NamedExpression]]), assignAliases(aggs), child)
 
                 case g: GroupingAnalytics if g.child.resolved && hasUnresolvedAlias(g.aggregations) =>
                     g.withNewAggs(assignAliases(g.aggregations))
@@ -155,9 +158,13 @@ object CleanupAliases2 extends Rule[LogicalPlan] {
                 val cleanedAggs = aggs.map(trimNonTopLevelAliases(_).asInstanceOf[NamedExpression])
                 Aggregate(grouping.map(trimAliases), cleanedAggs, child)
 
-            case MonotonicAggregate(grouping, aggs, child) =>
+            case MonotonicAggregatePartial(grouping, aggs, child) =>
                 val cleanedAggs = aggs.map(trimNonTopLevelAliases(_).asInstanceOf[NamedExpression])
-                MonotonicAggregate(grouping.map(trimAliases), cleanedAggs, child)
+                MonotonicAggregatePartial(grouping.map(trimAliases), cleanedAggs, child)
+
+            case MonotonicAggregateGlobal(grouping, aggs, child) =>
+                val cleanedAggs = aggs.map(trimNonTopLevelAliases(_).asInstanceOf[NamedExpression])
+                MonotonicAggregateGlobal(grouping.map(trimAliases), cleanedAggs, child)
 
             case w@Window(projectList, windowExprs, partitionSpec, orderSpec, child) =>
                 val cleanedWindowExprs =

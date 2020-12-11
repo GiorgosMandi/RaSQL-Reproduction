@@ -8,9 +8,9 @@ import edu.ucla.cs.wis.bigdatalog.spark.storage.map.UnsafeFixedWidthMonotonicAgg
 import org.apache.spark.Logging
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.UnsafeRow
-import org.apache.spark.sql.rasql.execution.MonotonicAggregate
+import org.apache.spark.sql.rasql.execution.MonotonicAggregateGlobal
 
-class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregationMap, monotonicAggregate: MonotonicAggregate, numFields: Int) extends Serializable with Logging{
+class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregationMap, monotonicAggregate: MonotonicAggregateGlobal, numFields: Int) extends Serializable with Logging{
 
     def size: Int = aggregateStore.numElements()
 
@@ -27,7 +27,7 @@ class AggregateSetRDDPartition(aggregateStore: UnsafeFixedWidthMonotonicAggregat
      * @param monotonicAggregate examined monotonic aggregation
      * @return
      */
-    def update(iter: Iterator[InternalRow], monotonicAggregate: MonotonicAggregate): (AggregateSetRDDPartition, HashSetPartition) = {
+    def update(iter: Iterator[InternalRow], monotonicAggregate: MonotonicAggregateGlobal): (AggregateSetRDDPartition, HashSetPartition) = {
 
         // this is going to perform the aggregation and return an iterator over the output
         val maIter = monotonicAggregate.getAggregationIterator(iter, aggregateStore)

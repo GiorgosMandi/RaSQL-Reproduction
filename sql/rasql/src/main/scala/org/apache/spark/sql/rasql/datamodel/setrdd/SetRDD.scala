@@ -3,7 +3,10 @@ package org.apache.spark.sql.rasql.datamodel.setrdd
 
 import org.apache.spark._
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.catalyst.InternalRow
+import org.apache.spark.sql.rasql.RaSQLContext
+import org.apache.spark.sql.rasql.datamodel.internalset.SetIterator
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.storage.StorageLevel
 
@@ -16,6 +19,10 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
     setName("SetRDD")
 
     override val partitioner: Option[Partitioner] = partitionsRDD.partitioner
+
+    @transient
+    final val rasqlContext: RaSQLContext = SQLContext.getActive().get.asInstanceOf[RaSQLContext]
+
 
     override protected def getPreferredLocations(s: Partition): Seq[String] =
         partitionsRDD.preferredLocations(s)
@@ -31,6 +38,8 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
         partitionsRDD.unpersist(blocking)
         this
     }
+
+    override def collect(): Array[InternalRow] = partitionsRDD.flatMap(hp => (new SetIterator(hp.set)).get()).collect()
 
     override def cache(): this.type = this.persist()
 
@@ -100,7 +109,7 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
 
     override def union(other: RDD[InternalRow]): SetRDD = {
         val unionRDD = other match {
-            case other: SetRDD if partitioner == other.partitioner =>
+            case other: SetRDD => //if partitioner == other.partitioner =>
                 this.zipSetRDDPartitions(other)((thisIter, otherIter) => {
                     val thisPart = thisIter.next()
                     val otherPart = otherIter.next()

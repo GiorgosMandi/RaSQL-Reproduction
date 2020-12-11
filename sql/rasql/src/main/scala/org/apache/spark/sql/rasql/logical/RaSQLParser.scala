@@ -66,41 +66,52 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             case t ~ base ~ recursive ~ s =>
 
                 rasqlContext.recursiveTable = t
+                if(preMKey != null) {
+                    // Form Monotonic Aggregation of recursive cte
+                    // Form PreM of target attribute
+                    val recPreMTarget = Seq(UnresolvedAttribute(preMKey.name))
+                    val recPreM = UnresolvedFunction(functionName, recPreMTarget, isDistinct = true)
+                    val recPreMAAliased = UnresolvedAlias(Alias(recPreM, preMKey.name)())
+                    // Form aggregation Attributes
+                    val recAggrKey = UnresolvedAttribute(aggregationKey.name)
 
-                // Form Monotonic Aggregation of recursive cte
-                // Form PreM of target attribute
-                val recPreMTarget = Seq(UnresolvedAttribute(preMKey.name))
-                val recPreM = UnresolvedFunction(functionName, recPreMTarget, isDistinct = true)
-                val recPreMAAliased = UnresolvedAlias(Alias(recPreM, preMKey.name)())
-                // Form aggregation Attributes
-                val recAggrKey = UnresolvedAttribute(aggregationKey.name)
-                val recAggregateArgs = Seq(UnresolvedAlias(Alias(recAggrKey, aggregationKey.name)()), recPreMAAliased)
-                val recursiveMA = MonotonicAggregate(Seq(recAggrKey), recAggregateArgs, Subquery("RR", recursive))
+                    val recAggregateArgs = Seq(UnresolvedAlias(Alias(recAggrKey, aggregationKey.name)()), recPreMAAliased)
+                    val recursiveMA = MonotonicAggregatePartial(Seq(recAggrKey), recAggregateArgs, Subquery("RR", recursive))
 
-                // Form Monotonic Aggregation of base cte - This stays the same so to
-                // Form PreM of target attribute
-                val basePreMTarget = Seq(base.projectList.last)
-                val basePreM = UnresolvedFunction(functionName, basePreMTarget, isDistinct = true)
-                val basePreMAliased = UnresolvedAlias(Alias(basePreM, preMKey.name)())
-                // Form aggregation Attributes
-                val baseAggrKey = Seq(base.projectList.head)
-                val baseAggregateArgs = base.projectList.dropRight(1) :+ basePreMAliased
-                val baseMA = MonotonicAggregate(baseAggrKey, baseAggregateArgs, base)
+                    // Form Monotonic Aggregation of base cte - This stays the same so to
+                    // Form PreM of target attribute
+                    val basePreMTarget = Seq(base.projectList.last)
+                    val basePreM = UnresolvedFunction(functionName, basePreMTarget, isDistinct = true)
+                    val basePreMAliased = UnresolvedAlias(Alias(basePreM, preMKey.name)())
+                    // Form aggregation Attributes
+                    val baseAggrKey = Seq(base.projectList.head)
+                    val baseAggregateArgs = base.projectList.dropRight(1) :+ basePreMAliased
+                    val baseMA = MonotonicAggregatePartial(baseAggrKey, baseAggregateArgs, base)
 
-                // In AggregateRecursion we apply the recursion
-                val ra = RecursiveAggregate(t, baseMA, recursiveMA)
+                    // In AggregateRecursion we apply the recursion
+                    val ra = RecursiveAggregate(t, baseMA, recursiveMA)
 
-                // After Recursive Aggregation we apply again the PreM F
-                val allKeys = attributes.map(ar => UnresolvedAttribute(ar.name))
-                val lastKey = Seq(allKeys.last)
-                val preM = UnresolvedFunction(functionName, lastKey, isDistinct = true)
-                val preMAliased = UnresolvedAlias(Alias(preM, preMKey.name)())
-                val groupingKeys = allKeys.dropRight(1)
-                val raMA = MonotonicAggregate(groupingKeys, groupingKeys :+ preMAliased, Subquery(t+"_RA", ra))
+                    // After Recursive Aggregation we apply again the PreM F
+                    val allKeys = attributes.map(ar => UnresolvedAttribute(ar.name))
+                    val lastKey = Seq(allKeys.last)
+                    val preM = UnresolvedFunction(functionName, lastKey, isDistinct = true)
+                    val preMAliased = UnresolvedAlias(Alias(preM, preMKey.name)())
+                    val groupingKeys = allKeys.dropRight(1)
+                    val raMA = MonotonicAggregateGlobal(groupingKeys, groupingKeys :+ preMAliased, Subquery(t + "_RA", ra))
 
-                // After initializing the Recursive CTE we apply the select query
-                val w = With(s, Map(t-> Subquery(t, raMA)))
-                w
+                    // After initializing the Recursive CTE we apply the select query
+                    val w = With(s, Map(t -> Subquery(t, raMA)))
+                    w
+                }
+                else {
+                    val recAggrKey = UnresolvedAttribute(aggregationKey.name)
+                    val recAggregateArgs = Seq(UnresolvedAlias(Alias(recAggrKey, aggregationKey.name)()))
+                    val recAggregate = Aggregate(Seq(recAggrKey), recAggregateArgs, Subquery("RR", recursive))
+
+                    val ra = RecursiveAggregate(t, base, recAggregate)
+                    val w = With(s, Map(t -> Subquery(t, ra)))
+                    w
+                }
     }
 
     /**
@@ -111,18 +122,23 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             case t ~ p =>
                 // Store info for PreM Function and other
                 // p will always have size=2 consisting of the aggregate key and the PreMFunction(key)
-                val pf = p.last.asInstanceOf[RecursiveAggregateExpr]
-                functionName = pf.getFunctionName
-                preMKey = pf.getTargetAttributeAlias
-                aggregationKey = p.head.asInstanceOf[UnresolvedAttribute]
-                restAttributes = p.drop(1).dropRight(1).asInstanceOf[Seq[UnresolvedAttribute]]
+                val structFields = p.last match {
+                    case pf: RecursiveAggregateExpr =>
+                        functionName = pf.getFunctionName
+                        preMKey = pf.getTargetAttributeAlias
+                        aggregationKey = p.head.asInstanceOf[UnresolvedAttribute]
+                        restAttributes = p.drop(1).dropRight(1).asInstanceOf[Seq[UnresolvedAttribute]]
+
+                        p.dropRight(1)
+                            .map(ua => StructField(ua.asInstanceOf[UnresolvedAttribute].name, IntegerType, nullable = false)) :+ StructField(preMKey.name, IntegerType, nullable = false)
+                    case _ =>
+                        aggregationKey = p.head.asInstanceOf[UnresolvedAttribute]
+                        restAttributes = p.drop(1).asInstanceOf[Seq[UnresolvedAttribute]]
+                        p.map(ua => StructField(ua.asInstanceOf[UnresolvedAttribute].name, IntegerType, nullable = false))
+                }
 
                 // An empty RDD is initialized as the Recursive Table
-                val structFields = p
-                    .dropRight(1)
-                    .map(ua => StructField(ua.asInstanceOf[UnresolvedAttribute].name, IntegerType, nullable = false)) :+ StructField(preMKey.name, IntegerType, nullable = false)
-
-                val schema = StructType(structFields )
+                val schema = StructType(structFields)
                 attributes = structFields.map(sf => AttributeReference(sf.name, sf.dataType, nullable = false)())
 
                 val rrdd = rasqlContext.sparkContext.emptyRDD[InternalRow]
@@ -144,15 +160,14 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 val rel = rr._2
 
                 val bo = c.asInstanceOf[Some[BinaryExpression]].get
-                val partitionKey = bo.right.asInstanceOf[UnresolvedAttribute]
-                //val partitionedRel =  RepartitionByExpression(Seq(partitionKey), rel, Option(rasqlContext.partitions))
                 val cachedRelation = CacheHint(rel)
                 val joined  = Join(cachedRelation, recRelation, Inner, c)
 
                 val uaAggregationKey = UnresolvedAlias(Alias(p.head, aggregationKey.name)())
-                val uaPreMKey = UnresolvedAlias(Alias(p.last, preMKey.name)())
                 val restKeys = p.dropRight(1).drop(1).zipWithIndex.map{ case (e: Expression, i) => UnresolvedAlias(Alias(e, restAttributes(i).name)())}
-                val toProject: Seq[UnresolvedAlias] = uaAggregationKey +: restKeys :+uaPreMKey
+                val toProject: Seq[UnresolvedAlias] = if (preMKey != null)
+                      uaAggregationKey +: restKeys :+ UnresolvedAlias(Alias(p.last, preMKey.name)())
+                else uaAggregationKey +: restKeys
                 Project(toProject, joined)
         }
 

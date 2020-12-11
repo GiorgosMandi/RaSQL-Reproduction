@@ -11,7 +11,14 @@ import org.apache.spark.sql.execution.{BinaryNode, SparkPlan}
 import org.apache.spark.sql.rasql.RaSQLContext
 import org.apache.spark.storage.StorageLevel
 
-case class PartitionHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expression], buildSide: BuildSide, left: SparkPlan, right: SparkPlan) extends BinaryNode with PartitionJoin {
+/* We have resurrected this class from earlier versions of Spark because for
+* recursion, caching the build-side of the join and reusing it each iteration is likely
+* better than performing a sort-merge-join each iteration.
+* TODO - take a look at optimizing sort-merge-join for recursive use.
+*/
+case class PartitionHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expression], buildSide: BuildSide, left: SparkPlan, right: SparkPlan)
+    extends BinaryNode with HashJoin {
+
     @transient
     final protected val rasqlContext = SQLContext.getActive().orNull.asInstanceOf[RaSQLContext]
 
@@ -21,7 +28,6 @@ case class PartitionHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expressio
         "numOutputRows" -> SQLMetrics.createLongMetric(sparkContext, "number of output rows"))
 
     var cachedBuildPlan: RDD[HashedRelation] = _
-    var recursiveBuildPlan: RDD[HashedRelation] = _
 
     override def output: Seq[Attribute] = left.output ++ right.output
 
@@ -46,10 +52,7 @@ case class PartitionHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expressio
                 .setName("cachedRelation")
                 .persist(StorageLevel.MEMORY_AND_DISK)
         }
-
-        recursiveBuildPlan = streamedPlan.execute().mapPartitionsInternal(iter => Iterator(HashedRelation(iter, SQLMetrics.nullLongMetric, buildSideKeyGenerator)), preservesPartitioning = true)
-
-        cachedBuildPlan.zipPartitions(recursiveBuildPlan) { (cachedBuildIter, recursiveBuildIter) => partitionJoin(recursiveBuildIter.next(), numStreamedRows, cachedBuildIter.next(), numOutputRows)}
+        val joined = cachedBuildPlan.zipPartitions(streamedPlan.execute()) { (buildIter, streamedIter) => hashJoin(streamedIter, numStreamedRows, buildIter.next(), numOutputRows)}
+        joined
     }
-
 }

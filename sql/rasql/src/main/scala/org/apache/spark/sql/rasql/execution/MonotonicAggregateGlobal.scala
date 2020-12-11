@@ -17,15 +17,15 @@ import org.apache.spark.sql.rasql.datamodel.setrdd.AggregateSetRDD
 import org.apache.spark.sql.rasql.{RaSQLContext, logical}
 import org.apache.spark.sql.types.StructType
 
-case class MonotonicAggregate(requiredChildDistributionExpressions: Option[Seq[Expression]],
-                         groupingExpressions: Seq[NamedExpression],
-                         nonCompleteAggregateExpressions: Seq[AggregateExpression],
-                         nonCompleteAggregateAttributes: Seq[Attribute],
-                         completeAggregateExpressions: Seq[AggregateExpression],
-                         completeAggregateAttributes: Seq[Attribute],
-                         initialInputBufferOffset: Int,
-                         resultExpressions: Seq[NamedExpression],
-                         child: SparkPlan) extends UnaryNode {
+case class MonotonicAggregateGlobal(requiredChildDistributionExpressions: Option[Seq[Expression]],
+                                    groupingExpressions: Seq[NamedExpression],
+                                    nonCompleteAggregateExpressions: Seq[AggregateExpression],
+                                    nonCompleteAggregateAttributes: Seq[Attribute],
+                                    completeAggregateExpressions: Seq[AggregateExpression],
+                                    completeAggregateAttributes: Seq[Attribute],
+                                    initialInputBufferOffset: Int,
+                                    resultExpressions: Seq[NamedExpression],
+                                    child: SparkPlan) extends UnaryNode {
 
 
     @transient
@@ -82,6 +82,7 @@ case class MonotonicAggregate(requiredChildDistributionExpressions: Option[Seq[E
         }
         else {
             val (temp1, temp2) = allRDD.update(child.execute())
+            // todo allRDD = temp1
             temp2
         }
     }

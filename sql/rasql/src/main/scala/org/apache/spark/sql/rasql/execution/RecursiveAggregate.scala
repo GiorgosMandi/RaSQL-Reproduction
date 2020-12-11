@@ -25,12 +25,16 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
     def partitionNotEmpty[U: ClassTag](iter: Iterator[_]): Boolean = iter.nonEmpty
 
     def doExecute(): RDD[InternalRow] = {
+
         val rowRDD: RDD[InternalRow] = left.execute()
+
         all = SetRDD(rowRDD, schema).setName("all"+iteration)
+        all.cache()
         delta = all
-        val items = all.count()
+        val items = all.collect()
+
         rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, rowRDD)
-        doRecursion(items)
+        doRecursion(items.length)
         all
     }
 
@@ -41,7 +45,7 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
             iteration += 1
 
             // calculate the new items
-            val delta_ = right.execute()
+            val delta_ = SetRDD(right.execute(), schema)
 
             // delta = all - new
             delta = all.diff(delta_).setName("delta"+iteration)
@@ -49,7 +53,7 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
             newItems = delta.count()
 
             // all = all U delta
-            all = all.union(delta_).setName("all"+iteration)
+            all = all.union(delta).setName("all"+iteration)
             all.cache()
 
             // delta becomes the new Recursive Relation for the next iteration
@@ -65,7 +69,6 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
             logInfo("Aggregate Recursion iteration: " + iteration)
             logInfo("New Delta RDD size = " + newItems)
         }
-        //all.cache()
     }
 
 }

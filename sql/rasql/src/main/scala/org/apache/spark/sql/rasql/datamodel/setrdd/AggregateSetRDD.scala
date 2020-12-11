@@ -8,13 +8,13 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.rasql.RaSQLContext
-import org.apache.spark.sql.rasql.execution.MonotonicAggregate
+import org.apache.spark.sql.rasql.execution.MonotonicAggregateGlobal
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.storage.StorageLevel
 
 import scala.reflect.ClassTag
 
-class AggregateSetRDD(val partitionsRDD: RDD[AggregateSetRDDPartition], monotonicAggregate: MonotonicAggregate)
+class AggregateSetRDD(val partitionsRDD: RDD[AggregateSetRDDPartition], monotonicAggregate: MonotonicAggregateGlobal)
     extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
 
     protected def self: AggregateSetRDD = this
@@ -114,7 +114,7 @@ class AggregateSetRDD(val partitionsRDD: RDD[AggregateSetRDDPartition], monotoni
 
 object AggregateSetRDD extends Logging {
     // this expects that the rows are already shuffled by AggrGroup which is the case when called from MonotonicAggregate
-    def apply(rdd: RDD[InternalRow], schema: StructType, monotonicAggregate: MonotonicAggregate): AggregateSetRDD = {
+    def apply(rdd: RDD[InternalRow], schema: StructType, monotonicAggregate: MonotonicAggregateGlobal): AggregateSetRDD = {
 
         val numInputRows = monotonicAggregate.longMetric("numInputRows")
         val numOutputRows = monotonicAggregate.longMetric("numOutputRows")

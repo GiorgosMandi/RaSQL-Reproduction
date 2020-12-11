@@ -7,7 +7,7 @@ import org.apache.spark.sql.catalyst.planning.ExtractEquiJoinKeys
 import org.apache.spark.sql.catalyst.plans.Inner
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.execution.{Filter, SparkPlan, SparkPlanner, joins}
-import org.apache.spark.sql.rasql.execution.{MonotonicAggregate, MonotonicAggregatePartial}
+import org.apache.spark.sql.rasql.execution.{MonotonicAggregateGlobal, MonotonicAggregatePartial}
 import org.apache.spark.sql.rasql.logical.CacheHint
 
 class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
@@ -61,13 +61,11 @@ class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
 
         def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
             case ExtractEquiJoinKeys(Inner, leftKeys, rightKeys, condition, left, CanCache(right)) =>
-                //makeShuffleHashJoin(leftKeys, rightKeys, left, right, condition, joins.BuildRight)
-                makePartitionHashJoin(leftKeys, rightKeys, left, right, condition, joins.BuildRight)
+                makeShuffleHashJoin(leftKeys, rightKeys, left, right, condition, joins.BuildRight)
 
 
             case ExtractEquiJoinKeys(Inner, leftKeys, rightKeys, condition, CanCache(left), right) =>
-                //makeShuffleHashJoin(leftKeys, rightKeys, left, right, condition, joins.BuildLeft)
-                makePartitionHashJoin(leftKeys, rightKeys, left, right, condition, joins.BuildLeft)
+                makeShuffleHashJoin(leftKeys, rightKeys, left, right, condition, joins.BuildLeft)
 
             case _ => EquiJoinSelection.apply(plan)
         }
@@ -77,7 +75,10 @@ class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
 
         def apply(plan: LogicalPlan): Seq[SparkPlan] = plan match {
 
-            case logical.MonotonicAggregate(groupingExpressions, resultExpressions, child) => {
+            case ma: logical.MonotonicAggregate => {
+                val groupingExpressions = ma.groupingExpressions
+                val resultExpressions = ma.aggregateExpressions
+                val child = ma.child
 
                 /* A single aggregate expression might appear multiple times in resultExpressions.
                    In order to avoid evaluating an individual aggregate function multiple times, we'll
@@ -142,22 +143,75 @@ class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
                     }.asInstanceOf[NamedExpression]
                 }
 
-                planMonotonicAggregate(namedGroupingExpressions.map(_._2), aggregateExpressions, aggregateFunctionToAttribute,
-                                        rewrittenResultExpressions, planLater(child))
+                ma match {
+                    case logical.MonotonicAggregatePartial(_, _, _) =>
+                        planMonotonicAggregatePartial(namedGroupingExpressions.map(_._2), aggregateExpressions,
+                            aggregateFunctionToAttribute, rewrittenResultExpressions, planLater(child))
+                    case logical.MonotonicAggregateGlobal(_, _, _) =>
+                        planMonotonicAggregateGlobal(namedGroupingExpressions.map(_._2), aggregateExpressions,
+                            aggregateFunctionToAttribute, rewrittenResultExpressions, planLater(child))
+                    case _ => Nil
+                }
+
             }
             case _ => Nil
         }
     }
 
 
-    def planMonotonicAggregate(groupingExpressions: Seq[NamedExpression],
+    def planMonotonicAggregatePartial(groupingExpressions: Seq[NamedExpression],
                                aggregateExpressions: Seq[AggregateExpression],
                                aggregateFunctionToAttribute: Map[(AggregateFunction, Boolean), Attribute],
                                resultExpressions: Seq[NamedExpression],
                                child: SparkPlan): Seq[SparkPlan] = {
 
-        // TODO before it was doing a partial and the a total - now I have changed it
-        // MonotonicAggregation will first do partial aggregation
+
+        val groupingAttributes = groupingExpressions.map(_.toAttribute)
+        val partialAggregateExpressions = aggregateExpressions.map(_.copy(mode = Partial))
+        val partialAggregateAttributes =
+            partialAggregateExpressions.flatMap(_.aggregateFunction.aggBufferAttributes)
+        val partialResultExpressions =
+            groupingAttributes ++
+                partialAggregateExpressions.flatMap(_.aggregateFunction.inputAggBufferAttributes)
+
+        val partialAggregate = MonotonicAggregatePartial(
+            requiredChildDistributionExpressions = None: Option[Seq[Expression]],
+            groupingExpressions = groupingExpressions,
+            nonCompleteAggregateExpressions = partialAggregateExpressions,
+            nonCompleteAggregateAttributes = partialAggregateAttributes,
+            completeAggregateExpressions = Nil,
+            completeAggregateAttributes = Nil,
+            initialInputBufferOffset = 0,
+            resultExpressions = partialResultExpressions,
+            child = child)
+
+
+        val finalAggregateExpressions = aggregateExpressions.map(_.copy(mode = Final))
+        val finalAggregateAttributes = finalAggregateExpressions.map {
+            expr => aggregateFunctionToAttribute(expr.aggregateFunction, expr.isDistinct)
+        }
+
+        val partialAggregation = MonotonicAggregatePartial(
+            requiredChildDistributionExpressions = None: Option[Seq[Expression]],
+            groupingExpressions = groupingExpressions,
+            nonCompleteAggregateExpressions = finalAggregateExpressions,
+            nonCompleteAggregateAttributes = finalAggregateAttributes,
+            completeAggregateExpressions = Nil,
+            completeAggregateAttributes = Nil,
+            initialInputBufferOffset = groupingExpressions.length,
+            resultExpressions = resultExpressions,
+            child = partialAggregate)
+
+        partialAggregation :: Nil
+    }
+
+
+    def planMonotonicAggregateGlobal(groupingExpressions: Seq[NamedExpression],
+                                      aggregateExpressions: Seq[AggregateExpression],
+                                      aggregateFunctionToAttribute: Map[(AggregateFunction, Boolean), Attribute],
+                                      resultExpressions: Seq[NamedExpression],
+                                      child: SparkPlan): Seq[SparkPlan] = {
+
 
         val groupingAttributes = groupingExpressions.map(_.toAttribute)
         val partialAggregateExpressions = aggregateExpressions.map(_.copy(mode = Partial))
@@ -186,7 +240,7 @@ class RaSQLPlanner(val rc: RaSQLContext) extends SparkPlanner(rc) {
             expr => aggregateFunctionToAttribute(expr.aggregateFunction, expr.isDistinct)
         }
 
-        val finalAggregate = MonotonicAggregate(
+        val finalAggregate = MonotonicAggregateGlobal(
             requiredChildDistributionExpressions = Some(groupingAttributes),
             groupingExpressions = groupingAttributes,
             nonCompleteAggregateExpressions = finalAggregateExpressions,

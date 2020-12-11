@@ -108,6 +108,7 @@ case class MonotonicAggregatePartial(requiredChildDistributionExpressions: Optio
                 }
             }
         }
+
         rdd
     }
 
