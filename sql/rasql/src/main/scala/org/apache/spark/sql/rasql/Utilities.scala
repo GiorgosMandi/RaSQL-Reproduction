@@ -49,3 +49,10 @@ case class RelationInfo(var rdd: RDD[InternalRow], var schema: StructType = null
     override def toString: String = "schema: " + this.schema + (if (rdd != null) " RDD")
 
 }
+
+sealed trait PreMapFunction
+
+case object MMax extends PreMapFunction
+case object MMin extends PreMapFunction
+case object MSum extends PreMapFunction
+case object MCount extends PreMapFunction

@@ -5,8 +5,9 @@ import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry
 import org.apache.spark.sql.catalyst.analysis.FunctionRegistry.FunctionBuilder
 import org.apache.spark.sql.catalyst.expressions.ExpressionInfo
-import org.apache.spark.sql.execution.{CacheManager, SparkSQLParser}
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateFunction
 import org.apache.spark.sql.execution.ui.SQLListener
+import org.apache.spark.sql.execution.{CacheManager, SparkSQLParser}
 import org.apache.spark.sql.rasql.logical._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, SQLContext}
@@ -23,20 +24,6 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
 
     self =>
 
-    var partitions: Int = this.sparkContext.getConf.get("spark.default.parallelism").toInt
-
-    val mmin: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MMin](name="mmin")
-    functionRegistry.registerFunction("mmin", info = mmin._2._1, builder = mmin._2._2)
-
-    val mmax: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MMax](name="mmax")
-    functionRegistry.registerFunction("mmax", info = mmax._2._1, builder = mmax._2._2)
-
-    val msum: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MSum](name="msum")
-    functionRegistry.registerFunction("msum", info = msum._2._1, builder = msum._2._2)
-
-    val mcount: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MCount](name="mcount")
-    functionRegistry.registerFunction("mcount", info = mcount._2._1, builder = mcount._2._2)
-
     def this(sparkContext: SparkContext) = { this(sparkContext, new CacheManager, SQLContext.createListenerAndUI(sparkContext), true)}
 
     @transient
@@ -51,21 +38,15 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
 
     var recursiveTable: String = _
 
+    var partitions: Int = this.sparkContext.getConf.get("spark.default.parallelism").toInt
+
     val hashPartitioner: HashPartitioner = new HashPartitioner(partitions)
 
-   /* def createDataFrame[A <: Product : TypeTag](rdd: RDD[A], name: String): DataFrame = {
-        SQLContext.setActive(self)
-        val schema = ScalaReflection.schemaFor[A].dataType.asInstanceOf[StructType]
-        val attributeSeq = schema.toAttributes
-        val rowRDD = RDDConversions.productToRowRdd(rdd, schema.map(_.dataType))
-        DataFrame(self, LogicalRDD(attributeSeq, rowRDD)(self))
-    }*/
 
     def internalCreateDataFrame(name: String, rdd: RDD[InternalRow], schema: StructType): DataFrame = {
         relationCatalog.addRelation(name, schema, rdd)
         internalCreateDataFrame(rdd, schema)
     }
-
 
     def setRecursiveRDD(name: String, rdd: RDD[InternalRow]): Unit = {
         relationCatalog.setRDD(name, rdd)
@@ -77,6 +58,27 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
             relationInfo.rdd
         else null
     }
+
+    var preMapF: PreMapFunction = MMin
+    def setPremF(f: AggregateFunction): Unit =
+        preMapF = f match {
+            case logical.MMax(_) => MMax
+            case logical.MMin(_) => MMin
+            case logical.MSum(_) => MSum
+            case logical.MCount(_) => MCount
+        }
+
+    val mmin: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MMin](name="mmin")
+    functionRegistry.registerFunction("mmin", info = mmin._2._1, builder = mmin._2._2)
+
+    val mmax: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MMax](name="mmax")
+    functionRegistry.registerFunction("mmax", info = mmax._2._1, builder = mmax._2._2)
+
+    val msum: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MSum](name="msum")
+    functionRegistry.registerFunction("msum", info = msum._2._1, builder = msum._2._2)
+
+    val mcount: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MCount](name="mcount")
+    functionRegistry.registerFunction("mcount", info = mcount._2._1, builder = mcount._2._2)
 
 }
 

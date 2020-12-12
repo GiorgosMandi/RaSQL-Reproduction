@@ -6,7 +6,7 @@ import org.apache.spark.sql.catalyst.analysis.{Catalog, ComputeCurrentTime, Dist
 import org.apache.spark.sql.catalyst.expressions.{Alias, Cast, CreateStruct, CreateStructUnsafe, Expression, Generator, NamedExpression, SortOrder}
 import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
-import org.apache.spark.sql.rasql.logical.{MonotonicAggregateGlobal, MonotonicAggregatePartial, RecursiveRelation}
+import org.apache.spark.sql.rasql.logical.RecursiveRelation
 
 case class Analyzer(catalog: Catalog,
                     registry: FunctionRegistry,
@@ -99,15 +99,9 @@ case class Analyzer(catalog: Catalog,
             exprs.exists(_.find(_.isInstanceOf[UnresolvedAlias]).isDefined)
 
         def apply(plan: LogicalPlan): LogicalPlan = {
-            val lp = plan resolveOperators {
+            plan resolveOperators {
                 case Aggregate(groups, aggs, child) if child.resolved && hasUnresolvedAlias(aggs) =>
                     Aggregate(groups, assignAliases(aggs), child)
-
-                case MonotonicAggregatePartial(groups, aggs, child) if child.resolved && hasUnresolvedAlias(aggs) =>
-                    MonotonicAggregatePartial(assignAliases(groups.asInstanceOf[Seq[NamedExpression]]), assignAliases(aggs), child)
-
-                case MonotonicAggregateGlobal(groups, aggs, child) if child.resolved && hasUnresolvedAlias(aggs) =>
-                    MonotonicAggregateGlobal(assignAliases(groups.asInstanceOf[Seq[NamedExpression]]), assignAliases(aggs), child)
 
                 case g: GroupingAnalytics if g.child.resolved && hasUnresolvedAlias(g.aggregations) =>
                     g.withNewAggs(assignAliases(g.aggregations))
@@ -119,7 +113,6 @@ case class Analyzer(catalog: Catalog,
                 case Project(projectList, child) if child.resolved && hasUnresolvedAlias(projectList) =>
                     Project(assignAliases(projectList), child)
             }
-            lp
         }
     }
 
@@ -148,7 +141,7 @@ object CleanupAliases2 extends Rule[LogicalPlan] {
     }
 
     override def apply(plan: LogicalPlan): LogicalPlan = {
-        val lp = plan resolveOperators {
+        plan resolveOperators {
             case Project(projectList, child) =>
                 val cleanedProjectList =
                     projectList.map(trimNonTopLevelAliases(_).asInstanceOf[NamedExpression])
@@ -157,14 +150,6 @@ object CleanupAliases2 extends Rule[LogicalPlan] {
             case Aggregate(grouping, aggs, child) =>
                 val cleanedAggs = aggs.map(trimNonTopLevelAliases(_).asInstanceOf[NamedExpression])
                 Aggregate(grouping.map(trimAliases), cleanedAggs, child)
-
-            case MonotonicAggregatePartial(grouping, aggs, child) =>
-                val cleanedAggs = aggs.map(trimNonTopLevelAliases(_).asInstanceOf[NamedExpression])
-                MonotonicAggregatePartial(grouping.map(trimAliases), cleanedAggs, child)
-
-            case MonotonicAggregateGlobal(grouping, aggs, child) =>
-                val cleanedAggs = aggs.map(trimNonTopLevelAliases(_).asInstanceOf[NamedExpression])
-                MonotonicAggregateGlobal(grouping.map(trimAliases), cleanedAggs, child)
 
             case w@Window(projectList, windowExprs, partitionSpec, orderSpec, child) =>
                 val cleanedWindowExprs =
@@ -184,7 +169,6 @@ object CleanupAliases2 extends Rule[LogicalPlan] {
                     case Alias(child, _) if !stop => child
                 }
             }
-            lp
         }
     }
 

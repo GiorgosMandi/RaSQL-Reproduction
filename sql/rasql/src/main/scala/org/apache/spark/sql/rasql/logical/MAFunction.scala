@@ -4,9 +4,9 @@ package org.apache.spark.sql.rasql.logical
 
 import org.apache.spark.sql.catalyst.analysis.TypeCheckResult
 import org.apache.spark.sql.catalyst.expressions.aggregate._
-import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, AttributeSet, Cast, Coalesce, Expression, Greatest, If, IsNull, Least, Literal, Or, Unevaluable}
+import org.apache.spark.sql.catalyst.expressions.{Add, AttributeReference, Cast, Coalesce, Expression, Greatest, If, IsNull, Least, Literal, Or}
 import org.apache.spark.sql.catalyst.util.TypeUtils
-import org.apache.spark.sql.types.{AbstractDataType, AnyDataType, DataType, LongType}
+import org.apache.spark.sql.types._
 
 
 abstract class MonotonicAggregateFunction extends DeclarativeAggregate with Serializable {}
@@ -17,7 +17,7 @@ case class MMax(child: Expression) extends MonotonicAggregateFunction {
 
     override def nullable: Boolean = true
 
-    override def dataType: DataType = child.dataType
+    override def dataType: DataType = IntegerType
 
     override def inputTypes: Seq[AbstractDataType] = Seq(AnyDataType)
 
@@ -44,7 +44,7 @@ case class MMin(child: Expression) extends MonotonicAggregateFunction {
 
     override def nullable: Boolean = true
 
-    override def dataType: DataType = child.dataType
+    override def dataType: DataType = IntegerType
 
     override def inputTypes: Seq[AbstractDataType] = Seq(AnyDataType)
 
@@ -69,7 +69,7 @@ case class MSum(child: Expression) extends MonotonicAggregateFunction {
 
     override def nullable: Boolean = true
 
-    override def dataType: DataType = child.dataType
+    override def dataType: DataType = IntegerType
 
     override def inputTypes: Seq[AbstractDataType] = Seq(AnyDataType)
 
@@ -119,25 +119,4 @@ case class MCount(child: Expression) extends MonotonicAggregateFunction {
 
     override def defaultResult: Option[Literal] = Option(Literal(0L))
 
-}
-
-case class MonotonicAggregateExpression(aggregateFunction: MonotonicAggregateFunction, mode: AggregateMode, isDistinct: Boolean)
-    extends Expression with Unevaluable {
-
-    override def children: Seq[Expression] = aggregateFunction :: Nil
-    override def dataType: DataType = aggregateFunction.dataType
-    override def foldable: Boolean = false
-    override def nullable: Boolean = aggregateFunction.nullable
-
-    override def references: AttributeSet = {
-        val childReferences = mode match {
-            case Partial | Complete => aggregateFunction.references.toSeq
-            case PartialMerge | Final => aggregateFunction.aggBufferAttributes
-        }
-        AttributeSet(childReferences)
-    }
-
-    override def prettyString: String = aggregateFunction.prettyString
-
-    override def toString: String = s"(${aggregateFunction},mode=$mode,isDistinct=$isDistinct)"
 }
