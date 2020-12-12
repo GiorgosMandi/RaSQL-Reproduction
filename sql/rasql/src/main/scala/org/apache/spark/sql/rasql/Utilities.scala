@@ -6,6 +6,10 @@ import org.apache.spark.sql.types.StructType
 
 import scala.collection.mutable
 
+/**
+ * A Relation catalog, mostly for storing the Recursive RDD
+ * @param catalog   relation catalog
+ */
 case class RelationCatalog(catalog: mutable.HashMap[String, RelationInfo] = mutable.HashMap.empty[String, RelationInfo]) extends Serializable {
 
     def addRelation(name : String, schema : StructType, rdd: RDD[InternalRow] = null) : Unit = {
@@ -45,11 +49,10 @@ case class RelationCatalog(catalog: mutable.HashMap[String, RelationInfo] = muta
 
 
 case class RelationInfo(var rdd: RDD[InternalRow], var schema: StructType = null) extends Serializable {
-
     override def toString: String = "schema: " + this.schema + (if (rdd != null) " RDD")
-
 }
 
+/** AN ENUMERATION OF THE PRE-MAP FUNCTIONS */
 sealed trait PreMapFunction
 
 case object MMax extends PreMapFunction

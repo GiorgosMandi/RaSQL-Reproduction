@@ -14,6 +14,15 @@ import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.apache.spark.{HashPartitioner, Logging, SparkContext}
 
 
+/**
+ * RaSQL Context: From here everything starts.
+ * Defines RaSQL parser, Analyzer, Planner, recursive RDD, monotonic functions, etc
+ *
+ * @param sparkContext  sparkContext
+ * @param cacheManager  cacheManager
+ * @param listener      listener
+ * @param isRootContext isRootContext
+ */
 class RaSQLContext(@transient override val sparkContext: SparkContext,
                    @transient override val cacheManager: CacheManager,
                    @transient override val listener: SQLListener,
@@ -26,6 +35,7 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
 
     def this(sparkContext: SparkContext) = { this(sparkContext, new CacheManager, SQLContext.createListenerAndUI(sparkContext), true)}
 
+    /** PARSER, ANALYZER, PLANNER */
     @transient
     protected[sql] override val sqlParser = new SparkSQLParser(RaSQLParser.parse)
 
@@ -34,24 +44,42 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
 
     override val planner: RaSQLPlanner = new RaSQLPlanner(this)
 
-    val relationCatalog: RelationCatalog = RelationCatalog()
-
-    var recursiveTable: String = _
-
+    /** PARTITIONS ORIENTED */
     var partitions: Int = this.sparkContext.getConf.get("spark.default.parallelism").toInt
 
     val hashPartitioner: HashPartitioner = new HashPartitioner(partitions)
 
+    /** RECURSIVE RDD ORIENTED  */
+    val relationCatalog: RelationCatalog = RelationCatalog()
 
+    var recursiveTable: String = _
+
+    /**
+     * Create a Dataframe and store it in relation catalog
+     * @param name      name
+     * @param rdd       rdd
+     * @param schema    schema
+     * @return
+     */
     def internalCreateDataFrame(name: String, rdd: RDD[InternalRow], schema: StructType): DataFrame = {
         relationCatalog.addRelation(name, schema, rdd)
         internalCreateDataFrame(rdd, schema)
     }
 
+    /**
+     *  Store the recursive RDD in the catalog, which will be update after each iteration
+     * @param name name
+     * @param rdd  rdd
+     */
     def setRecursiveRDD(name: String, rdd: RDD[InternalRow]): Unit = {
         relationCatalog.setRDD(name, rdd)
     }
 
+    /**
+     * return a stored RDD (mostly the recursive)
+     * @param name  name
+     * @return      an rdd
+     */
     def getRDD(name: String): RDD[InternalRow] = {
         val relationInfo = relationCatalog.getRelationInfo(name)
         if (relationInfo != null)
@@ -59,6 +87,10 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
         else null
     }
 
+    /**
+     * Stores the Pre-Map Function
+     * RaSQL Context instructs inner structures for which function to apply
+     */
     var preMapF: PreMapFunction = MMin
     def setPremF(f: AggregateFunction): Unit =
         preMapF = f match {
@@ -68,6 +100,9 @@ class RaSQLContext(@transient override val sparkContext: SparkContext,
             case logical.MCount(_) => MCount
         }
 
+    /**
+     * Declaring monotonic Functions
+     */
     val mmin: (String, (ExpressionInfo, FunctionBuilder)) = FunctionRegistry.expression[MMin](name="mmin")
     functionRegistry.registerFunction("mmin", info = mmin._2._1, builder = mmin._2._2)
 

@@ -8,6 +8,14 @@ import org.apache.spark.sql.catalyst.plans.logical._
 import org.apache.spark.sql.catalyst.rules.Rule
 import org.apache.spark.sql.rasql.logical.RecursiveRelation
 
+/**
+ * Extends Analyzer in order to resolve the new logical plans
+ *
+ * @param catalog   catalog
+ * @param registry  registry
+ * @param conf      conf
+ * @param maxIterations maxIterations
+ */
 case class Analyzer(catalog: Catalog,
                     registry: FunctionRegistry,
                     conf: CatalystConf,
@@ -42,7 +50,7 @@ case class Analyzer(catalog: Catalog,
 
 
     /**
-     * Replaces [[UnresolvedRelation]]s with concrete relations from the catalog.
+     * Replaces [[UnresolvedRelation]]s and RecursiveRelation with concrete relations from the catalog.
      */
     object ResolveRelations2 extends Rule[LogicalPlan] {
         def getTable(u: UnresolvedRelation): LogicalPlan = {
@@ -64,7 +72,6 @@ case class Analyzer(catalog: Catalog,
                     getTable(u)
                 } catch {
                     case _: AnalysisException if u.tableIdentifier.database.isDefined =>
-                        // delay the exception into CheckAnalysis, then it could be resolved as data source.
                         u
                 }
             case rr : RecursiveRelation =>
@@ -72,7 +79,6 @@ case class Analyzer(catalog: Catalog,
                         rr
                 } catch {
                     case _: AnalysisException if rr.tableIdentifier.database.isDefined =>
-                        // delay the exception into CheckAnalysis, then it could be resolved as data source.
                         rr
                 }
 
@@ -121,9 +127,6 @@ object CleanupAliases2 extends Rule[LogicalPlan] {
     private def trimAliases(e: Expression): Expression = {
         var stop = false
         e.transformDown {
-            // CreateStruct is a special case, we need to retain its top level Aliases as they decide the
-            // name of StructField. We also need to stop transform down this expression, or the Aliases
-            // under CreateStruct will be mistakenly trimmed.
             case c: CreateStruct if !stop =>
                 stop = true
                 c.copy(children = c.children.map(trimNonTopLevelAliases))

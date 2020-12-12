@@ -7,19 +7,25 @@ import org.apache.spark.sql.catalyst.expressions.codegen.{BufferHolder, UnsafeRo
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
-
+/**
+ *  Provides an iterator for the given InnerHashMap.
+ *  Used mostly for writing the InnerHashMap into Internal Rows
+ *
+ * @param map InnerHashMap
+ */
 class InnerIterator(map: InnerHashMap) extends Iterator[InternalRow]{
 
     val rawIter: Iterator[(Int, Int)] = map.iterator
     val uRow = new UnsafeRow()
     val bufferHolder = new BufferHolder()
     val rowWriter = new UnsafeRowWriter()
-    val numFields: Int =  map.numFields
+    val numFields: Int =  2
 
     override final def hasNext(): Boolean = {
         rawIter.hasNext
     }
 
+    // write the (K, V) into Row
     override final def next(): InternalRow = {
         bufferHolder.reset()
         rowWriter.initialize(bufferHolder, numFields)

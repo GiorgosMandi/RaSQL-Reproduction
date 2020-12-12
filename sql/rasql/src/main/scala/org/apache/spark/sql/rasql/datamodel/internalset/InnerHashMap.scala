@@ -6,12 +6,18 @@ import scala.collection.mutable
 import org.apache.spark.sql.rasql.{MCount, MMax, MMin, MSum, PreMapFunction}
 
 
+/**
+ * The inner structure that each partition contains
+ *  Consist of a HashMap that is updated only when new keys are given, or when shouldInsert holds
+ *
+ * @param prem the Pre-Map Function
+ */
 class InnerHashMap(prem: PreMapFunction) {
 
+    // the core structure
     var map: mutable.HashMap[Int, Int] = mutable.HashMap()
 
-    val numFields = 2
-
+    // applies the Pre-Map function
     def applyPreM(newValue: Int, value: Int): Int ={
         prem match {
             case MMin => math.min(newValue, value)
@@ -20,14 +26,15 @@ class InnerHashMap(prem: PreMapFunction) {
         }
     }
 
-    def shouldInsert(newValue: Int, value: Int): Boolean ={
+    // if it holds then the new record must be inserted
+    def shouldInsert(newValue: Int, value: Int): Boolean =
         prem match {
             case MMin => newValue < value
             case MMax => newValue > value
             case MSum | MCount => true
         }
-    }
 
+    // inserts a new record, if it satisfies some requirements
     def insert(row: InternalRow): Unit = {
         val key = getKey(row)
         val value = getValue(row)
@@ -35,6 +42,7 @@ class InnerHashMap(prem: PreMapFunction) {
         else map += key -> value
     }
 
+    // updates the give HashMap if the requirements are satisfied
     def ifNotExistsInsert(row: InternalRow, diffSet: InnerHashMap): Unit = {
         val key = getKey(row)
         val value = getValue(row)

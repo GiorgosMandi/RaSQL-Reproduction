@@ -9,6 +9,7 @@ import org.apache.spark.sql.catalyst.util.TypeUtils
 import org.apache.spark.sql.types._
 
 
+/** DECLARATION OF THE MONOTONIC AGGREGATE FUNCTIONS */
 abstract class MonotonicAggregateFunction extends DeclarativeAggregate with Serializable {}
 
 case class MMax(child: Expression) extends MonotonicAggregateFunction {

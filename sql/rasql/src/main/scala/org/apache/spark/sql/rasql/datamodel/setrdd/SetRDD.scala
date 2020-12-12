@@ -11,7 +11,16 @@ import org.apache.spark.storage.StorageLevel
 
 import scala.reflect.ClassTag
 
-class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
+
+/**
+ * SetRDD, this structure is lended from BigDatalog
+ *
+ * It's an RDD that its partitions consist of a Single HashMap (InnerHashMap), and it's used for
+ * union and differentiation of co-partitioned Set RDDs
+ *
+ * @param partitionsRDD partitionsRDD
+ */
+class SetRDD(var partitionsRDD: RDD[HashMapPartition]) extends RDD[InternalRow](partitionsRDD.context, List(new OneToOneDependency(partitionsRDD))) {
 
     protected def self: SetRDD = this
 
@@ -22,7 +31,56 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
     @transient
     final val rasqlContext: RaSQLContext = SQLContext.getActive().get.asInstanceOf[RaSQLContext]
 
+    /** MAIN FUNCTIONS */
 
+    /**
+     *  Differentiation:
+     *      Differentiates the corresponding partitions of the two RDDs
+      * @param other other RDD
+     * @return SetRDD with differentiated partitions
+     */
+    def diff(other: RDD[InternalRow]): SetRDD = {
+        val diffRDD = other match {
+            case other: SetRDD =>
+                this.zipSetRDDPartitions(other)((thisIter, otherIter) => {
+                    val thisPart = thisIter.next()
+                    val otherPart = otherIter.next()
+                    Iterator(thisPart.diff(otherPart.iterator, id))
+                })
+            case _ =>
+                this.zipPartitionsWithOther(other)((thisIter, otherIter) => {
+                    val thisPart = thisIter.next()
+                    Iterator(thisPart.diff(otherIter, id))
+                })
+        }
+        diffRDD.setName("SetRDD.diffRDD")
+    }
+
+    /**
+     * Union:
+     *      Unions the corresponing partitions of the two RDDs
+     * @param other other RDD
+     * @return SetRDD with unioned partitions
+     */
+    override def union(other: RDD[InternalRow]): SetRDD = {
+        val unionRDD = other match {
+            case other: SetRDD  =>
+                this.zipSetRDDPartitions(other)((thisIter, otherIter) => {
+                    val thisPart = thisIter.next()
+                    val otherPart = otherIter.next()
+                    Iterator(thisPart.union(otherPart, id))
+                })
+            case _ =>
+                this.zipPartitionsWithOther(other)((thisIter, otherIter) => {
+                    val thisPart = thisIter.next()
+                    Iterator(thisPart.union(otherIter, id))
+                })
+        }
+        unionRDD.setName("SetRDD.unionRDD")
+    }
+
+
+    /** OVERRIDED RDD OPERATIONS */
     override protected def getPreferredLocations(s: Partition): Seq[String] =
         partitionsRDD.preferredLocations(s)
 
@@ -38,7 +96,7 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
         this
     }
 
-    override def collect(): Array[InternalRow] = partitionsRDD.flatMap(hp => (new InnerIterator(hp.set)).get()).collect()
+    override def collect(): Array[InternalRow] = partitionsRDD.flatMap(hp => (new InnerIterator(hp.map)).get()).collect()
 
     override def cache(): this.type = this.persist()
 
@@ -49,7 +107,7 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
     }
 
     override def isCheckpointed: Boolean = {
-        firstParent[HashSetPartition].isCheckpointed
+        firstParent[HashMapPartition].isCheckpointed
     }
 
     override def getCheckpointFile: Option[String] = {
@@ -81,66 +139,35 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
 
     override def computeOrReadCheckpoint(split: Partition, context: TaskContext): Iterator[InternalRow] = {
         if (isCheckpointed)
-            firstParent[HashSetPartition].iterator(split, context).next.iterator
+            firstParent[HashMapPartition].iterator(split, context).next.iterator
         else
             compute(split, context)
     }
 
     override def compute(split: Partition, context: TaskContext): Iterator[InternalRow] =
-        firstParent[HashSetPartition].iterator(split, context).next.iterator
-
-    def diff(other: RDD[InternalRow]): SetRDD = {
-        val diffRDD = other match {
-            case other: SetRDD if partitioner == other.partitioner =>
-                this.zipSetRDDPartitions(other)((thisIter, otherIter) => {
-                    val thisPart = thisIter.next()
-                    val otherPart = otherIter.next()
-                    Iterator(thisPart.diff(otherPart.iterator, id))
-                })
-            case _ =>
-                this.zipPartitionsWithOther(other)((thisIter, otherIter) => {
-                    val thisPart = thisIter.next()
-                    Iterator(thisPart.diff(otherIter, id))
-                })
-        }
-        diffRDD.setName("SetRDD.diffRDD")
-    }
-
-    override def union(other: RDD[InternalRow]): SetRDD = {
-        val unionRDD = other match {
-            case other: SetRDD => //if partitioner == other.partitioner =>
-                this.zipSetRDDPartitions(other)((thisIter, otherIter) => {
-                    val thisPart = thisIter.next()
-                    val otherPart = otherIter.next()
-                    Iterator(thisPart.union(otherPart, id))
-                })
-            case _ =>
-                this.zipPartitionsWithOther(other)((thisIter, otherIter) => {
-                    val thisPart = thisIter.next()
-                    Iterator(thisPart.union(otherIter, id))
-                })
-        }
-        unionRDD.setName("SetRDD.unionRDD")
-    }
+        firstParent[HashMapPartition].iterator(split, context).next.iterator
 
     private def zipSetRDDPartitions(other: SetRDD)
-                                   (f: (Iterator[HashSetPartition], Iterator[HashSetPartition])
-                                       => Iterator[HashSetPartition]): SetRDD = {
+                                   (f: (Iterator[HashMapPartition], Iterator[HashMapPartition])
+                                       => Iterator[HashMapPartition]): SetRDD = {
         val rdd = partitionsRDD.zipPartitions(other.partitionsRDD, preservesPartitioning = true)(f)
         new SetRDD(rdd)
     }
 
     private def zipPartitionsWithOther(other: RDD[InternalRow])
-                                      (f: (Iterator[HashSetPartition], Iterator[InternalRow])
-                                          => Iterator[HashSetPartition]): SetRDD = {
+                                      (f: (Iterator[HashMapPartition], Iterator[InternalRow])
+                                          => Iterator[HashMapPartition]): SetRDD = {
         val rdd = partitionsRDD.zipPartitions(other, preservesPartitioning = true)(f)
         new SetRDD(rdd)
     }
 }
 
+/**
+ * Auxiliary Constructor
+ */
 object SetRDD {
     def apply(rdd: RDD[InternalRow], pf: PreMapFunction): SetRDD = {
-        val setRDDPartitions = rdd.mapPartitionsInternal[HashSetPartition] (iter => Iterator(HashSetPartition(iter, pf)), preservesPartitioning = true)
+        val setRDDPartitions = rdd.mapPartitionsInternal[HashMapPartition] (iter => Iterator(HashMapPartition(iter, pf)), preservesPartitioning = true)
         new SetRDD(setRDDPartitions)
     }
 }

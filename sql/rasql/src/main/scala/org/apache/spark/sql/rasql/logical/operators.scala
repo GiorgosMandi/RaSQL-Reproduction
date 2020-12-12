@@ -4,6 +4,13 @@ import org.apache.spark.sql.catalyst.TableIdentifier
 import org.apache.spark.sql.catalyst.expressions.Attribute
 import org.apache.spark.sql.catalyst.plans.logical._
 
+/**
+ * New logical plans
+ * */
+
+/**
+ * Recursive relation
+ */
 case class RecursiveRelation(tableIdentifier: TableIdentifier, var output: Seq[Attribute]) extends LeafNode {
 
     def tableName: String = tableIdentifier.unquotedString
@@ -12,6 +19,9 @@ case class RecursiveRelation(tableIdentifier: TableIdentifier, var output: Seq[A
 }
 
 
+/**
+ *  Recursive Aggregate
+ */
 case class RecursiveAggregate(name: String, left: LogicalPlan, right: LogicalPlan) extends BinaryNode {
     // left is exitRules plan
     // right is recursive rules plan

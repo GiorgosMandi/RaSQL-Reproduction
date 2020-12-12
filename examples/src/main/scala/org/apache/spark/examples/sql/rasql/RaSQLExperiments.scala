@@ -122,7 +122,7 @@ object RaSQLExperiments {
                      *      | (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src)
                      *      | SELECT count(distinct cc.CmpId) FROM cc
                      */
-                    raw""" WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT cc.Src, cc.CmpId FROM cc"""
+                    raw""" WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
                 case Some(q) => q
                 case _ =>
                     log.error("No query specified.")
@@ -161,7 +161,6 @@ object RaSQLExperiments {
         val endTime = Calendar.getInstance().getTimeInMillis
         log.info("Background Time: " + (endTime - startTime) / 1000.0 + "\n")
 
-        System.in.read()
         sc.stop()
     }
 }

@@ -14,7 +14,7 @@ import org.apache.spark.sql.{AnalysisException, SQLContext}
 /**
  *  RaSQL Parser
  *
- *  Parses recursive queries into Spark Logical plans
+ *  Parses recursive queries into a Spark Logical plans
  *
  *  The input queries must look like
  *
@@ -74,6 +74,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     var aggregationKey: UnresolvedAttribute = _
     var restAttributes: Seq[UnresolvedAttribute] = _
 
+    /** Starts Parsing */
     lazy val rasql: Parser[LogicalPlan] =
         recursive_cte ~
             (AS ~> ( "(" ~> simple_select <~ ")")) ~
@@ -84,20 +85,21 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 rasqlContext.recursiveTable = t
                 if(partialPremF != null) {
 
+                    // partial aggregate the recursive query
                     val aggrKeyUa = Seq(UnresolvedAttribute(aggregationKey.name))
                     val recPartialArgr = UnresolvedAlias(Alias(partialPremF, premKey.name)())
                     val recPartialAggregate = Aggregate(aggrKeyUa, aggrKeyUa :+ recPartialArgr, Subquery("RR", recursive))
 
+                    // partial aggregate the base query
                     val basePremKey = base.projectList.last
                     val basePartialAgr = AggregateExpression(getFunction(basePremKey, functionName), mode = Partial, isDistinct = true)
                     val basePartialAgrAliased = UnresolvedAlias(Alias(basePartialAgr, premKey.name)())
                     val basePartialAggregate = Aggregate(aggrKeyUa, aggrKeyUa :+ basePartialAgrAliased, base)
 
-                    // In AggregateRecursion we apply the recursion
+                    // Recursive Aggregation
                     val ra = RecursiveAggregate(t, basePartialAggregate, recPartialAggregate)
 
-
-                    // After Recursive Aggregation we apply again the PreM F
+                    // Final Aggregation (not partial) to the results after recursive aggregate
                     val finalAggregation = UnresolvedAlias(Alias(finalPremF, premKey.name)())
                     val raMA = Aggregate(aggrKeyUa, aggrKeyUa :+ finalAggregation, Subquery(t + "_RA", ra))
 
@@ -106,6 +108,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                     w
                 }
                 else {
+                    // Similar but for cases we don't have a PreM (like in REACH)
                     val recAggrKey = UnresolvedAttribute(aggregationKey.name)
                     val recAggregateArgs = Seq(UnresolvedAlias(Alias(recAggrKey, aggregationKey.name)()))
                     val recAggregate = Aggregate(Seq(recAggrKey), recAggregateArgs, Subquery("RR", recursive))
@@ -121,11 +124,12 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
     }
 
     /**
-     * Declaring the Recursive CTE
+     * Defining the Recursive CTE
      */
     lazy val recursive_cte : Parser[String] =
         (WITH ~> (RECURSIVE ~> ident)) ~ ("(" ~> rep1sep( premFunction|projection, ",") <~ ")")  ^^{
             case t ~ p =>
+                // setting main attributes
                 aggregationKey = p.head.asInstanceOf[UnresolvedAttribute]
                 restAttributes = p.drop(1).asInstanceOf[Seq[UnresolvedAttribute]]
                 val structFields =
@@ -135,7 +139,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                             StructField(premKey.name, IntegerType, nullable = false)
                     else p.map(ua => StructField(ua.asInstanceOf[UnresolvedAttribute].name, IntegerType, nullable = false))
 
-                // An empty RDD is initialized as the Recursive Table
+                // Initializing an empty RDD as the Recursive Table, in order the Analyzer to resolve its attributes
                 val schema = StructType(structFields)
                 attributes = structFields.map(sf => AttributeReference(sf.name, sf.dataType, nullable = false)())
                 val rrdd = rasqlContext.sparkContext.emptyRDD[InternalRow]
@@ -147,7 +151,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
         }
 
     /**
-     * Computing Recursive Select - the base relation joins with the recursive
+     * Computing Recursive Select - the base relation (input table) joins with the recursive
      */
     lazy val recursive_select: Parser[Project] =
         SELECT ~> repsep(projection, ",") ~
@@ -157,9 +161,11 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 val recRelation = rr._1
                 val rel = rr._2
 
+                // the base table does not change during the iterations, so we instruct to cache it
                 val cachedRelation = CacheHint(rel)
                 val joined  = Join(cachedRelation, recRelation, Inner, c)
 
+                // assign aliases to the projection, according to the target schema of the recursive CTE
                 val uaAggregationKey = UnresolvedAlias(Alias(p.head, aggregationKey.name)())
                 val toProject =
                     if (partialPremF != null) {
@@ -177,7 +183,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
         }
 
     /**
-     * Plain select query
+     * Plain select query for defining the base of the recursion (i.e. the first view of the recursive table)
      */
     protected lazy val simple_select: Parser[Project] =
         SELECT ~> rep1sep(projection, ",") ~
@@ -186,6 +192,8 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
             case p ~ r ~ f =>
                 val base = r.getOrElse(OneRowRelation)
                 val withFilter = f.map(Filter(_, base)).getOrElse(base)
+
+                // assign aliases to the projection, according to the target schema of the recursive CTE
                 val withProject = Project(p.zip(attributes).map{case (e, ua) => UnresolvedAlias(Alias(e, ua.name)())}, withFilter)
                 withProject
         }
@@ -195,6 +203,8 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
      */
     lazy val premFunction: Parser[AggregateExpression] =
        ( (MCOUNT| MMAX | MSUM | MMIN ) ~ (AS ~> expression)) ^^ { case premF ~ e =>
+
+           // defining the partial PreM for the partial Aggregation
            partialPremF = lexical.normalizeKeyword(premF) match {
                 case "mcount" => AggregateExpression(MCount(e), mode = Partial, isDistinct = true)
                 case "msum" => AggregateExpression(MSum(e), mode = Partial, isDistinct = true)
@@ -202,6 +212,8 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 case "mmax" => AggregateExpression(MMax(e), mode = Partial, isDistinct = true)
                 case _ => throw new AnalysisException(s"invalid expression $premF")
             }
+
+           // defining the final PreM for the final Aggregation
            finalPremF = lexical.normalizeKeyword(premF) match {
                case "mcount" => AggregateExpression(MCount(e), mode = Complete, isDistinct = true)
                case "msum" => AggregateExpression(MSum(e), mode = Complete, isDistinct = true)
@@ -209,12 +221,17 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                case "mmax" => AggregateExpression(MMax(e), mode = Complete, isDistinct = true)
                case _ => throw new AnalysisException(s"invalid expression $premF")
            }
+
+           // stores it for later
            functionName = lexical.normalizeKeyword(premF)
            premKey = UnresolvedAttribute(e.asInstanceOf[UnresolvedAttribute].name)
            rasqlContext.setPremF(partialPremF.aggregateFunction)
            partialPremF
         }
 
+    /**
+     * get aggregate function, given a string
+     */
     def getFunction(e: Expression, f: String): AggregateFunction ={
         f match {
             case "mcount" => MCount(e)
@@ -236,7 +253,7 @@ object RaSQLParser extends AbstractSparkSQLParser with DataTypeParser {
                 (recursiveRelation, rel)
         }
 
-    // Regular SQL Parsers follow
+    /** Regular SQL Parsers  */
 
     lazy val projection: Parser[Expression] = expression
 

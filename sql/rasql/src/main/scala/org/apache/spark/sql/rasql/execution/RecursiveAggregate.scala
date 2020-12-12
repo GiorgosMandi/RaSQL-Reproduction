@@ -10,7 +10,22 @@ import org.apache.spark.sql.rasql.datamodel.setrdd.SetRDD
 
 import scala.reflect.ClassTag
 
-
+/**
+ * Recursive Aggregate, the core of the whole implementation.
+ *
+ * Simply, first executes the left query which is the base query, and stores it as the recursive RDD.
+ * Then applies the right query, which is the recursive one, that joins the base relation with the recursive RDD
+ * Both left, and right, contain partial aggregation
+ *
+ * Then we find the new records by differentiate the old form the new, and adding the to the old
+ * We repeat until we have no new records
+ *
+ * Both new (delta) and old (all) are stored as SetRDD which applies the Pre-Map functions within.
+ *
+ * @param name  name
+ * @param left the base query
+ * @param right the recursive query
+ */
 case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan) extends BinaryNode {
 
     override def output: Seq[Attribute] = right.output
@@ -26,6 +41,13 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
 
     def partitionNotEmpty[U: ClassTag](iter: Iterator[_]): Boolean = iter.nonEmpty
 
+    /**
+     * - Applies the base query
+     * - Sets the recursive RDD
+     * - Start the recursion
+     *
+     * @return the results
+     */
     def doExecute(): RDD[InternalRow] = {
 
         val rowRDD: RDD[InternalRow] = left.execute()
@@ -41,6 +63,17 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
     }
 
 
+    /**
+     *  Iteratively do
+     *      - Calculate the new records, using the recursive RDD
+     *      - Differentiate to find the new records
+     *      - Union them to the old ones
+     *      - Update the recursive RDD
+     * Iteration stops when no new records were discovered
+     * All RDDs are stored as SetRDDs
+     *
+     * @param items new items before the iteration
+     */
     def doRecursion(items: Long): Unit = {
         var newItems = items
         while(newItems > 0){
@@ -59,7 +92,7 @@ case class RecursiveAggregate(name : String, left : SparkPlan, right : SparkPlan
             all = all.union(delta).setName("all"+iteration)
             all.cache()
 
-            // delta becomes the new Recursive Relation for the next iteration
+            // delta becomes the new Recursive RDD for the next iteration
             rasqlContext.setRecursiveRDD(rasqlContext.recursiveTable, delta_)
 
             if (iteration >= 4 && newItems > 0)
