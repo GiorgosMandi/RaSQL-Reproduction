@@ -112,7 +112,7 @@ object RaSQLExperiments {
                 case Some("CC") =>
                     /**
                      * Connected Components
-                     *      Connected Components compromizes all the induced sub-graph in which any two vertices are
+                     *      Connected Components compromises all the induced sub-graph in which any two vertices are
                      *      connected to each other by paths. In our case, we consider the graphs to be directed.
                      *
                      * Query:

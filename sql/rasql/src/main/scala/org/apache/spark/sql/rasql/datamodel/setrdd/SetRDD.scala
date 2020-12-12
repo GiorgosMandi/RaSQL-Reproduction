@@ -5,9 +5,8 @@ import org.apache.spark._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.rasql.RaSQLContext
-import org.apache.spark.sql.rasql.datamodel.internalset.SetIterator
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.rasql.datamodel.internalset.InnerIterator
+import org.apache.spark.sql.rasql.{PreMapFunction, RaSQLContext}
 import org.apache.spark.storage.StorageLevel
 
 import scala.reflect.ClassTag
@@ -39,7 +38,7 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
         this
     }
 
-    override def collect(): Array[InternalRow] = partitionsRDD.flatMap(hp => (new SetIterator(hp.set)).get()).collect()
+    override def collect(): Array[InternalRow] = partitionsRDD.flatMap(hp => (new InnerIterator(hp.set)).get()).collect()
 
     override def cache(): this.type = this.persist()
 
@@ -140,8 +139,8 @@ class SetRDD(var partitionsRDD: RDD[HashSetPartition]) extends RDD[InternalRow](
 }
 
 object SetRDD {
-    def apply(rdd: RDD[InternalRow], schema: StructType): SetRDD = {
-        val setRDDPartitions = rdd.mapPartitionsInternal[HashSetPartition] (iter => Iterator(HashSetPartition(iter, schema.length)), preservesPartitioning = true)
+    def apply(rdd: RDD[InternalRow], pf: PreMapFunction): SetRDD = {
+        val setRDDPartitions = rdd.mapPartitionsInternal[HashSetPartition] (iter => Iterator(HashSetPartition(iter, pf)), preservesPartitioning = true)
         new SetRDD(setRDDPartitions)
     }
 }

@@ -53,10 +53,10 @@ case class ConvertToSafe(child: SparkPlan) extends UnaryNode {
   override def canProcessUnsafeRows: Boolean = true
   override def canProcessSafeRows: Boolean = false
   override protected def doExecute(): RDD[InternalRow] = {
-    child.execute().mapPartitions { iter =>
+    child.execute().mapPartitionsInternal( { iter =>
       val convertToSafe = FromUnsafeProjection(child.output.map(_.dataType))
       iter.map(convertToSafe)
-    }
+    }, preservesPartitioning = true)
   }
 }
 

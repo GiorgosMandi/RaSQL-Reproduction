@@ -7,6 +7,21 @@ import org.apache.spark.graphx._
 import org.apache.spark.{SparkConf, SparkContext}
 
 object GraphXExperiments {
+
+
+    /**
+     *  Run by executing:
+     *      bin/spark-submit --master < spark | yarn |local > --class org.apache.spark.examples.sql.rasql.GraphXExperiments  \
+     *      examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.2.0.jar  < arguments >
+     *  Arguments:
+     *      -g /path/to/graph : path to file with the input graph
+     *      -q query : predefined queries (CC, SSSP, REACH)
+     *      -v X: define the starting vertex
+     *      -p partitions: Define number of partitions
+     *      -i X: set pregel max iterations
+     *
+     * @param args command line arguments
+     */
     def main(args: Array[String]): Unit = {
 
         val conf = new SparkConf()
@@ -31,6 +46,8 @@ object GraphXExperiments {
                     nextOption(map ++ Map("partitions" -> value), tail)
                 case ("-v" | "-vertex") :: value :: tail =>
                     nextOption(map ++ Map("startVertex" -> value), tail)
+                case ("-i" | "-iterations") :: value :: tail =>
+                    nextOption(map ++ Map("iterations" -> value), tail)
                 case _ :: tail =>
                     log.warn("RASQL: Unrecognized argument")
                     nextOption(map, tail)
@@ -47,6 +64,8 @@ object GraphXExperiments {
             return
         }
         val partitions : Int  = options.getOrElse("partitions", "12").toInt
+        val maxIterations: Int = options.getOrElse("iterations", "20").toInt
+
         val startTime = Calendar.getInstance().getTimeInMillis
         val graphRDD = GraphLoader.edgeListFile(sc, graphPath,
             numEdgePartitions = partitions).cache()
@@ -74,7 +93,7 @@ object GraphXExperiments {
                     else Iterator((edge.dstId, edge.dstAttr))
                 }
 
-                val cc = Pregel(initialGraph, Int.MaxValue, maxIterations = 20)(
+                val cc = Pregel(initialGraph, Int.MaxValue, maxIterations = maxIterations)(
                     vprog = (id, attr, msg) => math.min(attr, msg),
                     sendMsg = sendMessage,
                     mergeMsg = (a, b) => math.min(a, b))
@@ -125,7 +144,7 @@ object GraphXExperiments {
                     else
                         Iterator((edge.dstId, false))
                 }
-                val reach = initialGraph.ops.pregel(initialMsg = false, maxIterations = 20)(
+                val reach = initialGraph.ops.pregel(initialMsg = false, maxIterations = maxIterations)(
                     vprog = (id, attr, msg) => (attr || msg),
                     sendMsg = sendMessage,
                     mergeMsg = (a, b) => (a || b))

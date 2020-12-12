@@ -8,13 +8,13 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 
-class SetIterator(set: InternalSet) extends Iterator[InternalRow]{
+class InnerIterator(map: InnerHashMap) extends Iterator[InternalRow]{
 
-    val rawIter: Iterator[Any] = set.iterator
+    val rawIter: Iterator[(Int, Int)] = map.iterator
     val uRow = new UnsafeRow()
     val bufferHolder = new BufferHolder()
     val rowWriter = new UnsafeRowWriter()
-    val numFields: Int =  set.numFields
+    val numFields: Int =  map.numFields
 
     override final def hasNext(): Boolean = {
         rawIter.hasNext
@@ -25,15 +25,9 @@ class SetIterator(set: InternalSet) extends Iterator[InternalRow]{
         rowWriter.initialize(bufferHolder, numFields)
 
         val value = rawIter.next()
-        value match {
-            case value:(Int, Int) =>
-                rowWriter.write(0, value._1)
-                rowWriter.write(1, value._2)
-                uRow.pointTo(bufferHolder.buffer, numFields, bufferHolder.totalSize())
-            case value: Int =>
-                rowWriter.write(0, value)
-                uRow.pointTo(bufferHolder.buffer, numFields, bufferHolder.totalSize())
-        }
+        rowWriter.write(0, value._1)
+        rowWriter.write(1, value._2)
+        uRow.pointTo(bufferHolder.buffer, numFields, bufferHolder.totalSize())
         uRow
     }
 
