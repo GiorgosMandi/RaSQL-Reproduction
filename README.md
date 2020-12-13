@@ -1,4 +1,4 @@
-# RsSQL on Spark 1.6.1
+# RaSQL on Spark 1.6.1
 ## Reproduction
 
 ----
@@ -7,9 +7,9 @@ In:Proceedings of the 2019 International Conference on Management of Data, SIGMO
  The Netherlands. [url](https://doi.org/10.1145/3299869.3324959)* 
 
 
-This work is a reproduction of the above RaSQL publication, as a project I chose to do for the course Database Systems in the
+This work is a reproduction of the above publication (RaSQL), as a project I chose for the Database Systems course of my
  master program [DSIT](http://dsit.di.uoa.gr/), in the University of Athens. For more information you can address to my report
- of better to the actual publication
+ or better to the actual publication
 
  
 ---
