@@ -1,43 +1,75 @@
-# BigDatalog on Spark 1.6.1 
+# RsSQL on Spark 1.6.1
+## Reproduction
 
-BigDatalog is a Datalog system for Big Data Analytics first presented at SIGMOD 2016.  See the paper [Big Data Analytics with Datalog Queries on Spark](http://yellowstone.cs.ucla.edu/~yang/paper/sigmod2016-p958.pdf) for details.
+----
+*Jiaqi Gu et al. “RaSQL: Greater Power and Performance for Big Data Analytics with Recursive-aggregate-SQL on Spark”. 
+In:Proceedings of the 2019 International Conference on Managementof Data, SIGMOD Conference 2019, Amsterdam,
+ The Netherlands. [url](https://doi.org/10.1145/3299869.3324959)* 
 
-BigDatalog is implemented as a module (datalog) in Spark that requires a few changes to the core and sql modules.  Building, configuring and running examples follows the normal Spark approach which you can read about under [here] (http://spark.apache.org/docs/1.6.1/). 
 
-## Building BigDatalog
-Building and running BigDatalog follows the same procedures as Spark itself (see ["Building Spark"](http://spark.apache.org/docs/1.6.1/building-spark.html)) with one exception.  Before building for the first time, run the following to install the front-end compiler into the maven's local repository:
+This work is a reproduction of the above RaSQL publication, as a project I chose to do for the course Database Systems in the
+ master program [DSIT](http://dsit.di.uoa.gr/), in the University of Athens. For more information you can address to my report
+ of better to the actual publication
+
+ 
+---
+## RaSQL
+**RaSQL**  is a system that extends **SparkSQL** with recursive aggregation enabling it to parse recursive SQL queries, 
+especially useful for graph algorithms and data mining. The implementation is based on the the Algorithm,
+described in the paper. Furthermore it exploits the advantages of PreM aggregation functions in order to reduce the size of
+the intermediate data by applying the aggregation in an non-stratified way.
+
+This is a forked repository of BigDatalog. BigDatalog is a very similar tool designed to execute Datalog queries over distributed datasets.
+
+ 
+## Performance
+
+In order to evaluate the performance of my implementation of RaSQL, I compared it with BigDatalog and GraphX which is component 
+of Spark for parallel graph computations. For input datasets, I generated graphs using the [PaRMAT](https://github.com/farkhor/PaRMAT) graph generator, containing
+millions of vertices and edges. As queries I examined three very popular graph algorithms
+
+- Connected Components (CC): Finds all the connected components of a graph
+- Single-Source Shortest Paths (SSSP): Finds the shortest paths to all reachable vertices given an input source 
+- REACH: Finds the reachable nodes from a given source (performs a Depth First Search) 
+
+The results are presented in the following Figure. As you can see RaSQL outperforms most of the time its competitors. 
+
+
+ //  add figure 
+ 
+ ## Build
+Before building for the first time, run the following to install the front-end compiler into the maven's local repository. This is required in order to build BigDatalog:
 
     $ build/mvn install:install-file -Dfile=datalog/lib/DeALS-0.6.jar -DgroupId=DeALS -DartifactId=DeALS -Dversion=0.6 -Dpackaging=jar
 
-Once you have a successful build, you can verify BigDatalog by running its test cases (see ["Building Spark"](http://spark.apache.org/docs/1.6.1/building-spark.html)).
+Then follow the same procedures as Spark itself (see ["Building Spark"](http://spark.apache.org/docs/1.6.1/building-spark.html)). i.e. run
+    
+    $ build/mvn -Pyarn -Phadoop-2.4 -Dhadoop.version=2.4.0 -DskipTests package
+    
 
-## Example Programs
+## Execution
 
-BigDatalog comes with several sample programs in the `examples` module in the `org.apache.spark.examples.datalog` package.  These are run the same as other Spark example programs (i.e., via spark-submit).
+You can execute a recursive query using RaSQL by running
 
-## Writing BigDatalog Programs
-You will want to examine the example BigDatalog programs and the test cases to see how to use the BigDatalogAPI (BigDatalogContext) and how write BigDatalog programs.  For Datalog language help, see the [DeAL tutorial](http://wis.cs.ucla.edu/deals/tutorial/).   
+    $ bin/spark-submit --master < spark-master >  --class org.apache.spark.examples.sql.rasql.RaSQLExperiments  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.2.0.jar  -g /path/to/graph  -q < query> 
+    
+In more details the available flags are the following:
 
-## Configuration
+- -g path/to/graph: specify the path to the input graph
+- -p P: to re-partition your data (optional)
+- -v V: to specify the id of the initial vertex (in case of SSSP, REACH, etc) (optional, default=1)
+- -q QUERY: to specify the input query, for instance  
 
-[Spark Configuration options](http://spark.apache.org/docs/1.6.1/configuration.html)
+        -q "WITH recursive cpaths (Dst, sum() AS Cnt) AS (SELECT 1, 1) \
+            UNION (SELECT edge.Dst, cpaths.Cnt FROM cpaths, edge \
+            WHERE cpaths.Dst = edge.Src) SELECT Dst, Cnt FROM cpaths"
+            
+    - Some pre-defined queries are 
+        
+        - `-q CC`: for counting the connected components 
+        - `-q SSSP`: for Single-Source Shortest Paths
+        - `-q REACH`: for REACH
 
-The following are the BigDatalog configuration options:
-
-Property Name | Default | Meaning
-------------- | -------------| -------------
-spark.datalog.storage.level|MEMORY_ONLY|Default StorageLevel for recursive predicate RDD caching.
-spark.datalog.jointype|broadcast|Default join type.  "broadcast" (or no setting at all) - the plan generator will attempt to insert BroadcastHints into the plan to produce a BroadcastJoin.  "shuffle" - the plan generator will attempt to insert CacheHints to cache the build side of a ShuffleHashJoin.  "sortmerge" - the plan generator will not attempt any hints and produce a SortMergeJoin.  With "broadcast" or "shuffle", if no hints are given, SortMergeJoin is produced.
-spark.datalog.recursion.version|3|1 = Multi Job PSN, 2 = Multi Job PSN w/ SetRDD, 3 = Single Job PSN w/ SetRDD
-spark.datalog.recursion.memorycheckpoint|true|Each iteration of recursion, cache the RDDs in memory and clear lineage.  Avoids a stack-overflow from long lineages and greatly reduces closurecleaning time but you better have enough memory. Use false if the program+dataset requires few iterations. 
-spark.datalog.recursion.iterateinfixedpointresulttask|false|Decomposable predicates will not require shuffling during recursion.  This flag allows the FixedPointResultTask to iterate rather than perform a single iteration. 
-spark.datalog.aggregaterecursion.version|3|1 = Multi Job PSN, 2 = Multi Job PSN w/ SetRDD, 3 = Single Job PSN w/ SetRDD
-spark.datalog.shuffledistinct.enabled|false|Enables a "map-side distinct" before a shuffle to reduce the amount of data produced during a join in a recursion.
-spark.datalog.uniondistinct.enabled|true|Deduplicate union operations.  Datalog uses set-semantics!
-
-*PSN = Parallel Semi-naive Evaluation
-
-### Configuring BigDatalog Programs
-To configure the number of partitions for a recursive predicate, set spark.sql.shuffle.partitions (by default 200).  For programs without shuffling in recursion (decomposable programs) setting spark.sql.shuffle.partitions = [# of total CPU cores in the cluster] is usually a good choice.  For programs with shuffling, the value to use for spark.sql.shuffle.partitions can vary depending on the program + workload combination, but 1, 2, or 4 X [# of total CPU cores in the cluster] are good values to try.
-
-Many BigDatalog programs will perform better given more memory.  Make sure to choose a 'good' setting for spark.executor.memory and consider increasing spark.memory.fraction and spark.memory.storageFraction, especially for programs that require little-to-no shuffling.
+Using the same flags you can execute the GraphX by running 
+    
+    $ bin/spark-submit --master < spark-master >  --class org.apache.spark.examples.sql.rasql.GraphXExperiments  examples/target/scala-2.10/spark-examples-1.6.1-hadoop2.2.0.jar  -g /path/to/graph  -q < query> 
