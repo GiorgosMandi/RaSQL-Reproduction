@@ -3,7 +3,7 @@
 
 ----
 *Jiaqi Gu et al. “RaSQL: Greater Power and Performance for Big Data Analytics with Recursive-aggregate-SQL on Spark”. 
-In:Proceedings of the 2019 International Conference on Managementof Data, SIGMOD Conference 2019, Amsterdam,
+In:Proceedings of the 2019 International Conference on Management of Data, SIGMOD Conference 2019, Amsterdam,
  The Netherlands. [url](https://doi.org/10.1145/3299869.3324959)* 
 
 
@@ -35,7 +35,7 @@ millions of vertices and edges. As queries I examined three very popular graph a
 The results are presented in the following Figure. As you can see RaSQL outperforms most of the time its competitors. 
 
 
- //  add figure 
+![alt text](https://github.com/GiorgosMandi/RaSQL-Reproduction/blob/master/results.png)
  
  ## Build
 Before building for the first time, run the following to install the front-end compiler into the maven's local repository. This is required in order to build BigDatalog:
