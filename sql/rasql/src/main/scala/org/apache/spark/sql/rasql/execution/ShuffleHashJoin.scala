@@ -11,11 +11,15 @@ import org.apache.spark.sql.execution.{BinaryNode, SparkPlan}
 import org.apache.spark.sql.rasql.RaSQLContext
 import org.apache.spark.storage.StorageLevel
 
-/* We have resurrected this class from earlier versions of Spark because for
-* recursion, caching the build-side of the join and reusing it each iteration is likely
-* better than performing a sort-merge-join each iteration.
-* TODO - take a look at optimizing sort-merge-join for recursive use.
-*/
+/**
+ * Performs a shuffle hash join
+ *
+ * @param leftKeys the aggregation key of left plan
+ * @param rightKeys the aggregation key of right plan
+ * @param buildSide which side will be build and cached (the other will be streamed)
+ * @param left      left plan
+ * @param right     right plan
+ */
 case class ShuffleHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expression], buildSide: BuildSide, left: SparkPlan, right: SparkPlan)
     extends BinaryNode with HashJoin {
 
@@ -39,6 +43,10 @@ case class ShuffleHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expression]
     override def canProcessUnsafeRows: Boolean = true
     override def canProcessSafeRows: Boolean = false
 
+    /**
+     * Execution
+     * @return a joined RDD
+     */
     protected override def doExecute(): RDD[InternalRow] = {
         val numStreamedRows = buildSide match {
             case BuildLeft => longMetric("numRightRows")
@@ -46,12 +54,15 @@ case class ShuffleHashJoin(leftKeys: Seq[Expression], rightKeys: Seq[Expression]
         }
         val numOutputRows = longMetric("numOutputRows")
 
+        // build and cache the building plan - if it's already cached, don't execute
         if (cachedBuildPlan == null) {
             cachedBuildPlan = buildPlan.execute()
                 .mapPartitionsInternal(iter => Iterator(HashedRelation(iter, SQLMetrics.nullLongMetric, buildSideKeyGenerator)), preservesPartitioning = true)
                 .setName("cachedRelation")
                 .persist(StorageLevel.MEMORY_AND_DISK)
         }
+
+        // join two plans
         cachedBuildPlan.zipPartitions(streamedPlan.execute()) { (buildIter, streamedIter) => hashJoin(streamedIter, numStreamedRows, buildIter.next(), numOutputRows)}
     }
 }

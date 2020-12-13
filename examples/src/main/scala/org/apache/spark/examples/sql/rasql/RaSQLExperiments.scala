@@ -101,7 +101,7 @@ object RaSQLExperiments {
                     *      Find all reachable vertices from given source. Typically implements a DFS
                     *
                     *  Query:
-                    *       WITH recursive reach(Dst) AS
+                    *       WITH recursive  $(Dst) AS
                     *       | (SELECT $vertex)
                     *       | UNION
                     *       | (SELECT edge.Dst FROM reach, edge WHERE reach.Dst = edge.Src)
@@ -123,7 +123,9 @@ object RaSQLExperiments {
                      *      | SELECT count(distinct cc.CmpId) FROM cc
                      */
                     raw""" WITH recursive cc(Src, mmin AS CmpId) AS (SELECT Src, Src FROM edge) UNION (SELECT edge.Dst, cc.CmpId FROM cc, edge WHERE cc.Src = edge.Src) SELECT count(distinct cc.CmpId) FROM cc"""
-                case Some(q) => q
+
+                case Some(q) => q /** Read query from input */
+
                 case _ =>
                     log.error("No query specified.")
                     return
